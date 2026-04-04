@@ -4,10 +4,10 @@ set -euo pipefail
 # ============================================================================
 # OpenClaw Azure VM Deployment
 # ============================================================================
-# One command to deploy. One command to destroy.
 #
-# Deploy:  ./deploy.sh
-# Destroy: ./deploy.sh --destroy
+# ./deploy.sh            Deploy (creates data disk if needed, or reuses it)
+# ./deploy.sh --update   Rebuild VM with fresh OS, keep data disk
+# ./deploy.sh --destroy  Delete everything including data
 #
 # See README.md for setup instructions.
 # ============================================================================
@@ -20,6 +20,8 @@ VM_SIZE="Standard_E8s_v3"            # 8 vCPUs, 64 GiB RAM
 IMAGE="Canonical:ubuntu-24_04-lts:server:latest"
 ADMIN_USER="azureuser"
 OS_DISK_SIZE=256                      # GB, Premium SSD
+DATA_DISK_NAME="disk-openclaw-data"
+DATA_DISK_SIZE=64                     # GB, Premium SSD
 NSG_NAME="nsg-openclaw"
 VNET_NAME="vnet-openclaw"
 SUBNET_NAME="subnet-openclaw"
@@ -28,31 +30,66 @@ NIC_NAME="nic-openclaw"
 # -----------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ACTION="${1:-deploy}"
 
 # --- Handle --destroy --------------------------------------------------------
-if [[ "${1:-}" == "--destroy" ]]; then
-    echo "Destroying resource group ${RESOURCE_GROUP}..."
+if [[ "$ACTION" == "--destroy" ]]; then
+    echo "Destroying everything (VM + data disk)..."
     az group delete --name "$RESOURCE_GROUP" --yes 2>/dev/null && echo "Done." || echo "Nothing to destroy."
     exit 0
 fi
 
+# --- Handle --update ---------------------------------------------------------
+if [[ "$ACTION" == "--update" ]]; then
+    echo "Updating: destroying VM but keeping data disk..."
+
+    # Detach data disk from VM first
+    az vm disk detach \
+        --resource-group "$RESOURCE_GROUP" \
+        --vm-name "$VM_NAME" \
+        --name "$DATA_DISK_NAME" \
+        --output none 2>/dev/null || true
+
+    # Delete VM and its OS disk
+    az vm delete \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$VM_NAME" \
+        --yes \
+        --force-deletion none \
+        --output none 2>/dev/null || true
+
+    # Delete the old OS disk
+    OS_DISKS=$(az disk list --resource-group "$RESOURCE_GROUP" \
+        --query "[?name!='${DATA_DISK_NAME}'].name" --output tsv 2>/dev/null)
+    for disk in $OS_DISKS; do
+        az disk delete --resource-group "$RESOURCE_GROUP" --name "$disk" --yes --output none 2>/dev/null || true
+    done
+
+    # Delete NIC (will be recreated)
+    az network nic delete \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$NIC_NAME" \
+        --output none 2>/dev/null || true
+
+    echo "VM destroyed. Data disk preserved. Redeploying..."
+    echo ""
+    # Fall through to deploy
+fi
+
 # --- Validate prerequisites --------------------------------------------------
 
-# Azure CLI
 if ! command -v az &>/dev/null; then
     echo "ERROR: Azure CLI (az) not found."
     echo "       Install: https://aka.ms/installazurecli"
     echo "       Then run: az login"
     exit 1
 fi
-# Check if logged in
 if ! az account show &>/dev/null; then
     echo "ERROR: Not logged into Azure CLI. Run: az login"
     exit 1
 fi
 echo "[OK] Azure CLI authenticated"
 
-# xAI API key
 XAI_KEY_FILE="${SCRIPT_DIR}/xai.txt"
 if [[ ! -f "$XAI_KEY_FILE" ]]; then
     echo "ERROR: xai.txt not found"
@@ -66,7 +103,6 @@ if [[ -z "$XAI_API_KEY" ]]; then
 fi
 echo "[OK] xAI API key loaded"
 
-# Telegram bot token
 TELEGRAM_KEY_FILE="${SCRIPT_DIR}/telegram.txt"
 if [[ ! -f "$TELEGRAM_KEY_FILE" ]]; then
     echo "ERROR: telegram.txt not found"
@@ -86,7 +122,6 @@ if [[ -z "$TELEGRAM_BOT_TOKEN" ]]; then
 fi
 echo "[OK] Telegram bot token loaded"
 
-# SSH key (generate if missing)
 SSH_KEY_FILE=""
 for key in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub"; do
     if [[ -f "$key" ]]; then
@@ -124,75 +159,120 @@ sed \
 
 echo "[OK] Cloud-init prepared"
 
+# --- Check for existing data disk -------------------------------------------
+
+DATA_DISK_EXISTS=false
+if az disk show --resource-group "$RESOURCE_GROUP" --name "$DATA_DISK_NAME" &>/dev/null; then
+    DATA_DISK_EXISTS=true
+    echo "[OK] Existing data disk found (data will be preserved)"
+fi
+
 # --- Provision Azure infrastructure -----------------------------------------
+
+MODE="Fresh deploy"
+if [[ "$DATA_DISK_EXISTS" == true ]]; then
+    MODE="Update (preserving data)"
+fi
 
 echo ""
 echo "=========================================="
 echo " Deploying OpenClaw VM"
 echo "=========================================="
+echo " Mode:       ${MODE}"
 echo " VM Size:    ${VM_SIZE} (8 vCPUs, 64 GiB RAM)"
 echo " Region:     ${LOCATION}"
 echo " OS:         Ubuntu 24.04 LTS + XFCE Desktop"
 echo "=========================================="
 echo ""
 
-echo "[1/7] Creating resource group..."
+# Resource group (idempotent)
+echo "[1/8] Creating resource group..."
 az group create \
     --name "$RESOURCE_GROUP" \
     --location "$LOCATION" \
     --output none
 
-echo "[2/7] Creating virtual network..."
-az network vnet create \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$VNET_NAME" \
-    --address-prefix "10.0.0.0/16" \
-    --subnet-name "$SUBNET_NAME" \
-    --subnet-prefix "10.0.0.0/24" \
-    --output none
+# Virtual network (skip if exists)
+if ! az network vnet show --resource-group "$RESOURCE_GROUP" --name "$VNET_NAME" &>/dev/null; then
+    echo "[2/8] Creating virtual network..."
+    az network vnet create \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$VNET_NAME" \
+        --address-prefix "10.0.0.0/16" \
+        --subnet-name "$SUBNET_NAME" \
+        --subnet-prefix "10.0.0.0/24" \
+        --output none
+else
+    echo "[2/8] Virtual network exists"
+fi
 
-echo "[3/7] Creating NSG (all ports open)..."
-az network nsg create \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$NSG_NAME" \
-    --output none
+# NSG (skip if exists)
+if ! az network nsg show --resource-group "$RESOURCE_GROUP" --name "$NSG_NAME" &>/dev/null; then
+    echo "[3/8] Creating NSG (all ports open)..."
+    az network nsg create \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$NSG_NAME" \
+        --output none
 
-az network nsg rule create \
-    --resource-group "$RESOURCE_GROUP" \
-    --nsg-name "$NSG_NAME" \
-    --name "AllowAllInbound" \
-    --priority 100 \
-    --direction Inbound \
-    --access Allow \
-    --protocol '*' \
-    --source-address-prefixes '*' \
-    --source-port-ranges '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges '*' \
-    --output none
+    az network nsg rule create \
+        --resource-group "$RESOURCE_GROUP" \
+        --nsg-name "$NSG_NAME" \
+        --name "AllowAllInbound" \
+        --priority 100 \
+        --direction Inbound \
+        --access Allow \
+        --protocol '*' \
+        --source-address-prefixes '*' \
+        --source-port-ranges '*' \
+        --destination-address-prefixes '*' \
+        --destination-port-ranges '*' \
+        --output none
 
-az network nsg rule create \
-    --resource-group "$RESOURCE_GROUP" \
-    --nsg-name "$NSG_NAME" \
-    --name "AllowAllOutbound" \
-    --priority 100 \
-    --direction Outbound \
-    --access Allow \
-    --protocol '*' \
-    --source-address-prefixes '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges '*' \
-    --output none
+    az network nsg rule create \
+        --resource-group "$RESOURCE_GROUP" \
+        --nsg-name "$NSG_NAME" \
+        --name "AllowAllOutbound" \
+        --priority 100 \
+        --direction Outbound \
+        --access Allow \
+        --protocol '*' \
+        --source-address-prefixes '*' \
+        --destination-address-prefixes '*' \
+        --destination-port-ranges '*' \
+        --output none
+else
+    echo "[3/8] NSG exists"
+fi
 
-echo "[4/7] Creating static public IP..."
-az network public-ip create \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$PUBLIC_IP_NAME" \
-    --sku Standard \
-    --allocation-method Static \
-    --output none
+# Public IP (skip if exists)
+if ! az network public-ip show --resource-group "$RESOURCE_GROUP" --name "$PUBLIC_IP_NAME" &>/dev/null; then
+    echo "[4/8] Creating static public IP..."
+    az network public-ip create \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$PUBLIC_IP_NAME" \
+        --sku Standard \
+        --allocation-method Static \
+        --output none
+else
+    echo "[4/8] Public IP exists"
+fi
 
-echo "[5/7] Creating network interface..."
+# Data disk (create only if fresh deploy)
+if [[ "$DATA_DISK_EXISTS" == false ]]; then
+    echo "[5/8] Creating data disk (${DATA_DISK_SIZE} GB)..."
+    az disk create \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$DATA_DISK_NAME" \
+        --size-gb "$DATA_DISK_SIZE" \
+        --sku Premium_LRS \
+        --zone 3 \
+        --output none
+else
+    echo "[5/8] Data disk exists"
+fi
+
+# NIC
+echo "[6/8] Creating network interface..."
 az network nic create \
     --resource-group "$RESOURCE_GROUP" \
     --name "$NIC_NAME" \
@@ -200,9 +280,10 @@ az network nic create \
     --subnet "$SUBNET_NAME" \
     --network-security-group "$NSG_NAME" \
     --public-ip-address "$PUBLIC_IP_NAME" \
-    --output none
+    --output none 2>/dev/null || true
 
-echo "[6/7] Creating VM (this takes a few minutes)..."
+# VM
+echo "[7/8] Creating VM (this takes a few minutes)..."
 az vm create \
     --resource-group "$RESOURCE_GROUP" \
     --name "$VM_NAME" \
@@ -213,11 +294,12 @@ az vm create \
     --ssh-key-values "$SSH_KEY_FILE" \
     --os-disk-size-gb "$OS_DISK_SIZE" \
     --storage-sku Premium_LRS \
+    --attach-data-disks "$DATA_DISK_NAME" \
     --custom-data "$CLOUD_INIT_RENDERED" \
     --zone 3 \
     --output none
 
-echo "[7/7] Retrieving public IP..."
+echo "[8/8] Retrieving public IP..."
 PUBLIC_IP=$(az network public-ip show \
     --resource-group "$RESOURCE_GROUP" \
     --name "$PUBLIC_IP_NAME" \
@@ -230,11 +312,9 @@ echo ""
 echo "VM created at ${PUBLIC_IP}. Waiting for software installation (~5-10 min)..."
 echo ""
 
-# Auto-accept SSH host key and wait for cloud-init
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 SSH_KEY="$(echo "$SSH_KEY_FILE" | sed 's/\.pub$//')"
 
-# Wait for SSH to become available
 for i in $(seq 1 30); do
     if ssh $SSH_OPTS -i "$SSH_KEY" -o ConnectTimeout=5 "${ADMIN_USER}@${PUBLIC_IP}" "true" 2>/dev/null; then
         break
@@ -242,7 +322,6 @@ for i in $(seq 1 30); do
     sleep 10
 done
 
-# Wait for cloud-init to finish
 ssh $SSH_OPTS -i "$SSH_KEY" -o ServerAliveInterval=15 "${ADMIN_USER}@${PUBLIC_IP}" \
     "sudo cloud-init status --wait" 2>/dev/null || true
 
@@ -256,6 +335,11 @@ VERIFY=$(ssh $SSH_OPTS -i "$SSH_KEY" "${ADMIN_USER}@${PUBLIC_IP}" "
     echo \"  OpenClaw Gateway: \$OC\"
     echo \"  xrdp (desktop):   \$XRDP\"
     echo \"  Xvfb (display):   \$XVFB\"
+    if mount | grep -q '/data'; then
+        echo \"  Data disk:        mounted at /data\"
+    else
+        echo \"  Data disk:        NOT MOUNTED (check logs)\"
+    fi
 " 2>/dev/null)
 echo "$VERIFY"
 
@@ -276,7 +360,10 @@ echo "   1. Send any message to your bot in Telegram"
 echo "   2. The pairing code will appear in the desktop terminal:"
 echo "      sudo journalctl -u openclaw-gateway -f"
 echo ""
-echo " Destroy when done:"
+echo " Update (new OS, keep data):"
+echo "   ./deploy.sh --update"
+echo ""
+echo " Destroy everything:"
 echo "   ./deploy.sh --destroy"
 echo ""
 echo "=========================================="

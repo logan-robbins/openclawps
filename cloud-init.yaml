@@ -2,6 +2,7 @@
 
 # OpenClaw VM Bootstrap - Ubuntu 24.04 LTS + XFCE + OpenClaw
 # Uses default Azure admin user (azureuser). No custom users.
+# Data disk at /dev/disk/azure/scsi1/lun0 is mounted at /data for persistence.
 
 ssh_pwauth: true
 
@@ -71,7 +72,7 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # OpenClaw gateway service
+  # OpenClaw gateway service (reads .env and config from /data via symlinks)
   - path: /etc/systemd/system/openclaw-gateway.service
     permissions: "0644"
     content: |
@@ -97,18 +98,70 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # OpenClaw environment file (tokens injected by deploy.sh)
-  - path: /home/azureuser/.openclaw/.env
-    permissions: "0600"
+  # Setup script
+  - path: /opt/setup-openclaw.sh
+    permissions: "0755"
     content: |
+      #!/bin/bash
+      set -euo pipefail
+      exec > /var/log/openclaw-setup.log 2>&1
+
+      echo "=== OpenClaw Setup Starting ==="
+
+      # Set RDP password for azureuser
+      echo "azureuser:__RDP_PASSWORD__" | chpasswd
+
+      # ---------------------------------------------------------------
+      # Mount data disk
+      # ---------------------------------------------------------------
+      DATA_DEV="/dev/disk/azure/scsi1/lun0"
+      DATA_MOUNT="/data"
+
+      echo "Mounting data disk..."
+      mkdir -p "$DATA_MOUNT"
+
+      # Format only if no filesystem exists (fresh disk)
+      if ! blkid "$DATA_DEV" &>/dev/null; then
+          echo "Fresh data disk detected. Formatting..."
+          mkfs.ext4 -F "$DATA_DEV"
+      else
+          echo "Existing data disk detected. Preserving data."
+      fi
+
+      mount "$DATA_DEV" "$DATA_MOUNT"
+
+      # Add to fstab for persistence across reboots
+      if ! grep -q "$DATA_MOUNT" /etc/fstab; then
+          echo "$DATA_DEV $DATA_MOUNT ext4 defaults,nofail 0 2" >> /etc/fstab
+      fi
+
+      # ---------------------------------------------------------------
+      # Initialize data disk directories (only if fresh)
+      # ---------------------------------------------------------------
+      if [[ ! -d "$DATA_MOUNT/openclaw" ]]; then
+          echo "Initializing data disk directories..."
+          mkdir -p "$DATA_MOUNT/openclaw"
+          mkdir -p "$DATA_MOUNT/workspace"
+      fi
+
+      chown -R azureuser:azureuser "$DATA_MOUNT"
+
+      # ---------------------------------------------------------------
+      # Write config/env to data disk (only if not already there)
+      # ---------------------------------------------------------------
+      if [[ ! -f "$DATA_MOUNT/openclaw/.env" ]]; then
+          cat > "$DATA_MOUNT/openclaw/.env" << 'ENVEOF'
       XAI_API_KEY=__XAI_API_KEY__
       TELEGRAM_BOT_TOKEN=__TELEGRAM_BOT_TOKEN__
       OPENCLAW_GATEWAY_TOKEN=__GATEWAY_TOKEN__
+      ENVEOF
+          chmod 600 "$DATA_MOUNT/openclaw/.env"
+      else
+          echo "Existing .env found on data disk. Keeping it."
+      fi
 
-  # OpenClaw configuration (validated against 2026.4.x schema - no "tools" key)
-  - path: /home/azureuser/.openclaw/openclaw.json
-    permissions: "0644"
-    content: |
+      if [[ ! -f "$DATA_MOUNT/openclaw/openclaw.json" ]]; then
+          cat > "$DATA_MOUNT/openclaw/openclaw.json" << 'CFGEOF'
       {
         "agents": {
           "defaults": {
@@ -160,49 +213,58 @@ write_files:
           "redactSensitive": "tools"
         }
       }
+      CFGEOF
+          chmod 644 "$DATA_MOUNT/openclaw/openclaw.json"
+      else
+          echo "Existing openclaw.json found on data disk. Keeping it."
+      fi
 
-  # Setup script that runs after packages are installed
-  - path: /opt/setup-openclaw.sh
-    permissions: "0755"
-    content: |
-      #!/bin/bash
-      set -euo pipefail
-      exec > /var/log/openclaw-setup.log 2>&1
+      chown -R azureuser:azureuser "$DATA_MOUNT"
 
-      echo "=== OpenClaw Setup Starting ==="
+      # ---------------------------------------------------------------
+      # Symlink data disk into home directory
+      # ---------------------------------------------------------------
+      echo "Linking data disk into home directory..."
+      rm -rf /home/azureuser/.openclaw
+      ln -s "$DATA_MOUNT/openclaw" /home/azureuser/.openclaw
 
-      # Set RDP password for azureuser
-      echo "azureuser:__RDP_PASSWORD__" | chpasswd
+      rm -rf /home/azureuser/workspace
+      ln -s "$DATA_MOUNT/workspace" /home/azureuser/workspace
 
-      # Install Node.js 22 via NodeSource
+      chown -h azureuser:azureuser /home/azureuser/.openclaw
+      chown -h azureuser:azureuser /home/azureuser/workspace
+
+      # ---------------------------------------------------------------
+      # Install software
+      # ---------------------------------------------------------------
+
+      # Node.js 22
       echo "Installing Node.js 22..."
       curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
       apt-get install -y nodejs
 
-      # Install OpenClaw globally
+      # OpenClaw
       echo "Installing OpenClaw..."
       npm install -g openclaw@latest
 
-      # Install pyautogui via pip (not available as apt package on 24.04)
+      # pyautogui (not available as apt package on 24.04)
       echo "Installing pyautogui..."
       pip3 install --break-system-packages pyautogui
 
-      # Fix home directory ownership (npm install as root taints .npm cache)
-      chown -R azureuser:azureuser /home/azureuser
+      # Fix home directory ownership
+      chown -R azureuser:azureuser /home/azureuser/.npm /home/azureuser/.cache 2>/dev/null || true
 
-      # Install Playwright + Chromium for browser automation (as azureuser)
+      # Playwright + Chromium
       echo "Installing Playwright..."
       su - azureuser -c "npx playwright install chromium --with-deps" || true
 
-      # Create workspace directory
-      mkdir -p /home/azureuser/workspace
-      chown azureuser:azureuser /home/azureuser/workspace
-
-      # Install Telegram Desktop
+      # Telegram Desktop
       echo "Installing Telegram Desktop..."
       snap install telegram-desktop || true
 
-      # Tune xrdp for better performance
+      # ---------------------------------------------------------------
+      # Configure xrdp
+      # ---------------------------------------------------------------
       echo "Configuring xrdp..."
       sed -i 's/^max_bpp=.*/max_bpp=24/' /etc/xrdp/xrdp.ini
       sed -i 's/^xserverbpp=.*/xserverbpp=24/' /etc/xrdp/xrdp.ini
@@ -210,10 +272,12 @@ write_files:
       systemctl enable xrdp
       systemctl restart xrdp
 
-      # Disable XFCE compositing (reduces lag over RDP)
+      # Disable XFCE compositing
       su - azureuser -c "DISPLAY=:99 xfconf-query -c xfwm4 -p /general/use_compositing -s false" 2>/dev/null || true
 
-      # Create desktop shortcuts
+      # ---------------------------------------------------------------
+      # Desktop shortcuts
+      # ---------------------------------------------------------------
       echo "Creating desktop shortcuts..."
       mkdir -p /home/azureuser/Desktop
 
@@ -256,7 +320,9 @@ write_files:
       chmod +x /home/azureuser/Desktop/*.desktop
       chown -R azureuser:azureuser /home/azureuser/Desktop
 
-      # Enable and start services
+      # ---------------------------------------------------------------
+      # Start services
+      # ---------------------------------------------------------------
       echo "Starting services..."
       systemctl daemon-reload
       systemctl enable xvfb.service
@@ -265,6 +331,9 @@ write_files:
       systemctl start openclaw-gateway.service
 
       echo "=== OpenClaw Setup Complete ==="
+      echo "Data disk mounted at /data"
+      echo "OpenClaw data: /data/openclaw -> ~/.openclaw"
+      echo "Workspace:     /data/workspace -> ~/workspace"
 
 runcmd:
   - bash /opt/setup-openclaw.sh
