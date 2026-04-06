@@ -105,14 +105,11 @@ Open your RDP client and connect:
 - **Windows**: Built-in Remote Desktop Connection (`mstsc`)
 - **Linux**: `remmina` or `xfreerdp`
 
-## Pair Telegram
+## Use Telegram
 
-After you RDP in:
+Once the VM is running, open Telegram on your phone and send any message to your bot. OpenClaw responds immediately -- no pairing or approval step needed.
 
-1. Open a terminal on the desktop (or double-click "OpenClaw Logs" shortcut)
-2. On your phone, send any message to your bot in Telegram
-3. A pairing code appears in the terminal -- approve it
-4. You can now talk to OpenClaw from anywhere via Telegram
+The bot can't message you first (that's a Telegram platform rule for all bots). You always start the conversation, but after that first message it works like a normal chat.
 
 ## Managing the VM
 

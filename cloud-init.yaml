@@ -200,7 +200,8 @@ write_files:
         "channels": {
           "telegram": {
             "enabled": true,
-            "dmPolicy": "pairing",
+            "dmPolicy": "open",
+            "allowFrom": ["*"],
             "groupPolicy": "disabled",
             "streaming": "partial"
           }
