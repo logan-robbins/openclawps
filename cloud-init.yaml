@@ -70,6 +70,28 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # Wrapper script: auto-detect active xrdp display, fall back to Xvfb :99
+  # This lets the agent's browser appear in your RDP session if connected,
+  # or run headless on Xvfb when no one is connected.
+  - path: /usr/local/bin/openclaw-with-display.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Auto-detect active xrdp display, fall back to Xvfb :99
+      ACTIVE_DISPLAY=':99'
+      for d in /tmp/.X11-unix/X*; do
+          n=$(basename "$d" | sed 's/X//')
+          if [[ "$n" != '99' ]]; then
+              if pgrep -u azureuser -f "Xorg :$n" > /dev/null 2>&1; then
+                  ACTIVE_DISPLAY=":$n"
+                  break
+              fi
+          fi
+      done
+      export DISPLAY="$ACTIVE_DISPLAY"
+      export XAUTHORITY=/home/azureuser/.Xauthority
+      exec /usr/bin/openclaw gateway
+
   # OpenClaw gateway service (reads .env and config from /data via symlinks)
   - path: /etc/systemd/system/openclaw-gateway.service
     permissions: "0644"
@@ -84,10 +106,9 @@ write_files:
       User=azureuser
       Group=azureuser
       WorkingDirectory=/home/azureuser
-      Environment=DISPLAY=:99
       Environment=HOME=/home/azureuser
       EnvironmentFile=/home/azureuser/.openclaw/.env
-      ExecStart=/usr/bin/openclaw gateway
+      ExecStart=/usr/local/bin/openclaw-with-display.sh
       Restart=always
       RestartSec=10
       StandardOutput=journal
@@ -221,6 +242,12 @@ write_files:
         "gateway": {
           "port": 18789,
           "mode": "local"
+        },
+        "browser": {
+          "enabled": true,
+          "executablePath": "/usr/bin/google-chrome-stable",
+          "headless": false,
+          "noSandbox": true
         },
         "logging": {
           "redactSensitive": "tools"
