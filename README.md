@@ -28,7 +28,9 @@ Everything in this repo is plain text. There are no pre-baked images, no gallery
 
 Environment overrides (all optional):
 
-    RG=my-rg LOCATION=westus2 VM_NAME=my-desktop VM_SIZE=Standard_D4s_v5 ./deploy.sh
+    RG=my-rg LOCATION=westus2 VM_NAME=my-desktop VM_SIZE=Standard_D4s_v3 ./deploy.sh
+
+The default `Standard_D2s_v3` (2 vCPU, 8 GB RAM) is chosen because the DSv3 family has default quota in essentially every Azure subscription and the size has been generally available since 2017. For a heavier desktop workload, override with `Standard_D4s_v3` (4 vCPU, 16 GB) or any other size — note that v5-family sizes (`D2s_v5`, etc.) often require a quota bump in fresh subscriptions, and burstable B-series can be regionally capacity-constrained.
 
 ## Connect
 

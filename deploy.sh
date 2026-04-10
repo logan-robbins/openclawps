@@ -9,7 +9,7 @@ set -euo pipefail
 RG="${RG:-rg-linux-desktop}"
 LOCATION="${LOCATION:-eastus}"
 VM_NAME="${VM_NAME:-linux-desktop}"
-VM_SIZE="${VM_SIZE:-Standard_D2s_v5}"
+VM_SIZE="${VM_SIZE:-Standard_D2s_v3}"
 ADMIN_USER="${ADMIN_USER:-azureuser}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

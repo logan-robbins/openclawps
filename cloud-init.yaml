@@ -4,7 +4,7 @@
 # (substituting x11vnc-attached-to-:0 for xrdp spawning :10+, so always-on
 # workloads remain observable across viewer disconnect/reconnect).
 #
-# Do NOT add a `users:` block — that replaces the default Azure admin user
+# Do NOT add a `users:` block -- that replaces the default Azure admin user
 # (azureuser) and breaks SSH key injection.
 
 package_update: true
