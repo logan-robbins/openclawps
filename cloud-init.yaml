@@ -52,11 +52,35 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # Disable the X screensaver and DPMS at every xfce session start. Without
+  # this, the built-in 10-minute idle timer eventually blanks :0 and, combined
+  # with light-locker (purged below), triggers lightdm to lock the seat and
+  # spawn a greeter on :1 -- which leaves VNC viewers looking at a stale black
+  # :0 frame. Belt-and-suspenders with the light-locker purge.
+  - path: /etc/xdg/autostart/disable-blanking.desktop
+    permissions: "0644"
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=Disable screen blanking and DPMS
+      Comment=Keep the :0 session awake forever so VNC viewers always see live content
+      Exec=bash -c "xset s off s noblank -dpms"
+      OnlyShowIn=XFCE;
+      X-GNOME-Autostart-enabled=true
+      NoDisplay=true
+
 runcmd:
   # Host-side firewall fully disabled (permissive posture, per project design)
   - systemctl stop ufw || true
   - systemctl disable ufw || true
   - ufw --force disable || true
+
+  # Purge light-locker. It ships as a dependency of lightdm on Ubuntu and its
+  # ONLY job is to lock the seat when the X screensaver fires, which on xfce's
+  # default 10-minute idle timer means a VNC viewer ends up stuck looking at a
+  # locked screen 10 minutes after every boot. For an always-on headless desktop
+  # this is strictly anti-feature -- remove it.
+  - DEBIAN_FRONTEND=noninteractive apt-get purge -y light-locker light-locker-settings 2>&1 || true
 
   # xfce session hint (mirrors the MS tutorial's ~/.xsession step)
   - sudo -u azureuser bash -c 'echo xfce4-session > ~/.xsession'
