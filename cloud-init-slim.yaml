@@ -1,0 +1,22 @@
+#cloud-config
+# Minimal bootstrap for image-based claw deploys (Phase 3).
+# No package installs -- everything is baked into the image.
+# Injects secrets and triggers /opt/claw/boot.sh.
+#
+# ${VAR} placeholders are substituted by deploy.sh via envsubst
+# before az vm create. This file never contains actual secrets.
+
+write_files:
+  - path: /home/azureuser/.openclaw/.env
+    permissions: "0600"
+    content: |
+      XAI_API_KEY=${XAI_API_KEY}
+      OPENAI_API_KEY=${OPENAI_API_KEY}
+      BRIGHTDATA_API_TOKEN=${BRIGHTDATA_API_TOKEN}
+      TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
+      VM_PASSWORD=${VM_PASSWORD}
+
+runcmd:
+  - chown -R azureuser:azureuser /home/azureuser
+  - /opt/claw/boot.sh

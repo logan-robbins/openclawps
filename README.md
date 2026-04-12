@@ -1,70 +1,97 @@
 # remote-claw
 
-A single-VM Azure deployment of Ubuntu 24.04 with a **persistent xfce4 desktop on `:0`, exposed over VNC**, so long-running workloads keep running whether or not anyone is connected. Based on the shape of Microsoft's tutorial https://learn.microsoft.com/en-us/azure/virtual-machines/linux/use-remote-desktop (with `x11vnc` substituted for `xrdp` so the viewer attaches to the same `:0` session the workload runs in).
+ClawOps for OpenClaw agents on Azure. Continuously roll out system updates across a fleet of autonomous agents while preserving each agent's identity, workspace, credentials, and running state.
 
-## What this is
+The pattern: **image = versioned system runtime, detachable disk = durable agent state, boot script = late binding**. Update the image, swap the VM underneath, the agent picks up where it left off.
 
-One shell script, one cloud-init file. `az vm create` from stock Ubuntu 24.04, cloud-init installs `xfce4 + lightdm + x11vnc`. `lightdm` auto-logs in `azureuser` into an xfce session on `:0` at boot, and `x11vnc` attaches to that `:0` display so any VNC viewer sees exactly what's on the long-running session. Connect with any VNC client (macOS Finder has one built in).
+## How it works
 
-**Always-on behavior:** the `:0` session exists from the moment the VM boots, independent of whether anyone is viewing. Disconnect your VNC client, the session keeps running. Reconnect later, you see the same state.
+Each claw is an always-on Ubuntu 24.04 VM with a persistent xfce4 desktop, OpenClaw gateway, Telegram bot, Chrome, and Claude Code. The VM runs whether or not anyone is watching. Two SSH or VNC sessions see the same live desktop.
 
-## Reproducible from any Azure account
+The system layer (OS, packages, OpenClaw, boot logic) is baked into a versioned image. Everything that makes a claw *that specific claw* (config, secrets, workspace, memory, session state) lives on a detachable Azure managed disk. Upgrades swap the image; the data disk rides along.
 
-Everything in this repo is plain text. There are no pre-baked images, no gallery dependencies, no account-specific identifiers committed anywhere. Clone, `az login` to your own account, run `./deploy.sh`. Works in any subscription, any tenant, any region. The canonical source of truth is `cloud-init.yaml`.
+## Lifecycle
 
-## Security posture
+### Build from scratch
 
-**Wide open, on purpose.** The NSG allows all protocols and all ports from all sources. `ufw` is explicitly disabled on the host. VNC listens on `0.0.0.0:5900` protected only by a random 16-character password generated at first boot. This is a dev/experimentation VM, not a production host. Do not run anything sensitive on it.
+```bash
+cp .env.template .env && vi .env
+./deploy.sh scratch
+```
+
+Full install from stock Ubuntu. ~10 min. When done, message the Telegram bot.
+
+### Bake the image
+
+```bash
+./deploy.sh bake 1.0.0
+```
+
+Strips secrets, captures the system as a versioned image in Azure Compute Gallery.
+
+### Stamp out claws
+
+```bash
+ENV_FILE=.env.alice VM_NAME=alice ./deploy.sh
+ENV_FILE=.env.bob   VM_NAME=bob   ./deploy.sh
+```
+
+~2 min each. Fresh data disk, own credentials, own Telegram bot, fully independent.
+
+### Roll out updates
+
+```bash
+# Bake a new version from an updated VM
+./deploy.sh bake 2.0.0
+
+# Upgrade a claw in place -- data disk reattaches, state preserved
+./deploy.sh upgrade alice --image 2.0.0
+```
+
+Numbered migration scripts in `updates/` run automatically on the data disk after each upgrade.
+
+## Credentials per claw
+
+| Credential | Purpose |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Each claw is a different bot (@BotFather) |
+| `XAI_API_KEY` | Model provider (can share across claws) |
+| `OPENAI_API_KEY` | Optional |
+| `BRIGHTDATA_API_TOKEN` | Optional, web research |
+| `TELEGRAM_USER_ID` | Optional, restricts who can DM the bot |
+| `VM_PASSWORD` | Optional, auto-generated. Single password for SSH and VNC. |
 
 ## Prerequisites
 
-- Azure CLI logged in (`az login`)
-- At least one SSH public key in `~/.ssh/*.pub`. `deploy.sh` auto-detects it; if you have multiple, it will prompt you to pick one. Override with `SSH_KEY_FILE=path/to/key.pub ./deploy.sh` to skip the prompt.
-- A VNC client. macOS has one built in (Finder > Go > Connect to Server > `vnc://<ip>:5900`). Linux: Remmina or `vncviewer`. Windows: RealVNC Viewer, TightVNC, or similar.
-
-## Deploy
-
-    ./deploy.sh
-
-Environment overrides (all optional):
-
-    RG=my-rg LOCATION=westus2 VM_NAME=my-desktop VM_SIZE=Standard_D4s_v3 ./deploy.sh
-
-The default `Standard_D2s_v3` (2 vCPU, 8 GB RAM) is chosen because the DSv3 family has default quota in essentially every Azure subscription and the size has been generally available since 2017. For a heavier desktop workload, override with `Standard_D4s_v3` (4 vCPU, 16 GB) or any other size — note that v5-family sizes (`D2s_v5`, etc.) often require a quota bump in fresh subscriptions, and burstable B-series can be regionally capacity-constrained.
+- Azure CLI (`az login`)
+- `envsubst` (`brew install gettext`)
+- `sshpass` (deploy-time automation only -- VMs accept plain `ssh azureuser@ip` from anywhere)
 
 ## Connect
 
-1. Wait for cloud-init to finish (~5-10 min on first boot):
+```bash
+ssh azureuser@<ip>          # password printed at deploy time, saved in .vm-state
+open vnc://<ip>:5900        # same password
+```
 
-       ssh azureuser@<ip> 'sudo cloud-init status --wait'
+## Stop / start
 
-2. Retrieve the randomly-generated VNC password:
+```bash
+az vm deallocate -g rg-linux-desktop -n alice   # billing stops
+az vm start      -g rg-linux-desktop -n alice   # everything resumes
+```
 
-       ssh azureuser@<ip> 'cat ~/vnc-password.txt'
+Nothing reinstalls. Systemd services auto-start. Data disk stays attached.
 
-3. Open your VNC client and connect to `vnc://<ip>:5900`. Paste the password from step 2. You are now viewing the `:0` session.
+## Security posture
 
-## Daily stop / start (keep disk, save money)
+Deliberately permissive inside the VM. OpenClaw runs unrestricted: sandbox off, full exec rights, passwordless sudo. The agent operates as if it were a human at the keyboard.
 
-The VM is intended to be stopped when not in use. Always use **deallocate** (not stop) so compute billing stops. The OS disk and public IP persist across cycles — your installed software, files, and IP address are preserved.
+Containment is at the infrastructure boundary: isolated resource group, scoped credentials, narrow managed identity. The VM is not the security boundary -- Azure is.
 
-    az vm deallocate -g rg-linux-desktop -n linux-desktop   # end of session
-    az vm start      -g rg-linux-desktop -n linux-desktop   # start of session
+## Destroy
 
-## Destroy permanently
-
-    az group delete --name rg-linux-desktop --yes --no-wait
-
-## Verification
-
-    ssh azureuser@<ip> 'sudo ss -tlnp | grep :5900'
-
-Expect `x11vnc` listening on `0.0.0.0:5900`.
-
-    ssh azureuser@<ip> 'systemctl is-active lightdm x11vnc'
-
-Expect `active` twice.
-
-    ssh azureuser@<ip> 'pgrep -af xfce4-session'
-
-Expect at least one running `xfce4-session` process owned by `azureuser`, confirming the lightdm auto-login landed.
+```bash
+az vm delete -g rg-linux-desktop -n alice --yes                    # one claw
+az group delete --name rg-linux-desktop --yes --no-wait            # everything
+```

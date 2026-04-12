@@ -33,6 +33,8 @@ packages:
   - scrot
   - xclip
   - x11-utils
+  # Terminal multiplexer (used by Claude Code remote-control)
+  - tmux
   # Fetch/build helpers used by the Phase 2 install step
   - curl
   - wget
@@ -338,6 +340,12 @@ runcmd:
   - wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
   - DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/chrome.deb
   - rm /tmp/chrome.deb
+
+  # ---- Claude Code CLI ---------------------------------------------------------
+  - npm install -g @anthropic-ai/claude-code
+
+  # ---- /opt/claw directory (boot scripts staged here by deploy.sh via SCP) ----
+  - mkdir -p /opt/claw/defaults /opt/claw/updates
 
   # ---- Directory ownership for azureuser --------------------------------------
   - mkdir -p /home/azureuser/workspace /home/azureuser/.openclaw
