@@ -4,9 +4,7 @@
 
 # OpenClawps
 
-Ops for [OpenClaw](https://openclaw.ai) agents. One command to deploy a fully equipped, desktop-running claw on Azure. One command to upgrade it without losing state.
-
-OpenClaw gives you the AI brain and the Gateway. OpenClawps gives you the easy button to run that brain as a reliable, desktop-equipped cloud agent.
+MLOps-inspired CI/CD for [OpenClaw](https://openclaw.ai) agent fleets. Prescriptive, versioned system images provide a managed runtime. Portable data disks carry agent identity, workspace, and state across VM replacements and image upgrades. Deploy a fully equipped, desktop-running claw on Azure in one command. Upgrade it without losing state in another.
 
 Architecture diagrams and topology: [challengelogan.com/openclawps](https://challengelogan.com/openclawps)
 
