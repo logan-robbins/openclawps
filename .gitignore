@@ -2,6 +2,5 @@
 *.env
 !.env.template
 .vm-state
-/SOUL.md
 node_modules/
 *.edited.md

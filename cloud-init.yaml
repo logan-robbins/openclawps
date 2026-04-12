@@ -155,7 +155,7 @@ write_files:
               "mode": "off"
             },
             "elevatedDefault": "full",
-            "thinkingDefault": "xhigh",
+            "thinkingDefault": "high",
             "subagents": {
               "model": "xai/grok-4.20-0309-reasoning",
               "maxConcurrent": 4,
