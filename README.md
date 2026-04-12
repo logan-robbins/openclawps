@@ -32,8 +32,10 @@ Each claw gets its own `.env`:
 | Key | Required | Notes |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | yes | Unique per claw -- one bot per token |
-| `XAI_API_KEY` | yes | Can share across claws if desired |
-| `OPENAI_API_KEY` | no | For OpenAI-model agents |
+| `OPENCLAW_MODEL` | no | Model to use, e.g. `xai/grok-4`, `openai/gpt-4o`, `anthropic/claude-4`. Default: `xai/grok-4` |
+| `XAI_API_KEY` | * | Required if using xai/* models |
+| `OPENAI_API_KEY` | * | Required if using openai/* models |
+| `ANTHROPIC_API_KEY` | * | Required if using anthropic/* models |
 | `BRIGHTDATA_API_TOKEN` | no | Web research |
 | `TELEGRAM_USER_ID` | no | Restricts who can DM the bot |
 | `VM_PASSWORD` | no | Auto-generated if blank. Same password for SSH and VNC. |

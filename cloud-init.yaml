@@ -127,8 +127,10 @@ write_files:
     # ownership set by runcmd chown after user creation
     permissions: "0600"
     content: |
+      OPENCLAW_MODEL=${OPENCLAW_MODEL}
       XAI_API_KEY=${XAI_API_KEY}
       OPENAI_API_KEY=${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       BRIGHTDATA_API_TOKEN=${BRIGHTDATA_API_TOKEN}
       TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       TELEGRAM_USER_ID=${TELEGRAM_USER_ID}

@@ -128,7 +128,8 @@ seed_new_disk() {
         log "Placed secrets on data disk"
     fi
 
-    # Configure openclaw.json with Telegram policy from .env
+    # Configure openclaw.json from .env values
+    configure_model
     configure_telegram_policy
 
     # Set VNC password from VM_PASSWORD in .env (single password for SSH + VNC)
@@ -150,6 +151,24 @@ seed_new_disk() {
 
     touch "$MARKER_FILE"
     log "First-boot seeding complete"
+}
+
+configure_model() {
+    local env_file="${DATA_MOUNT}/openclaw/.env"
+    local config_file="${DATA_MOUNT}/openclaw/openclaw.json"
+
+    [[ -f "$config_file" ]] || return 0
+    [[ -f "$env_file" ]] || return 0
+
+    local model=""
+    model=$(grep -E '^OPENCLAW_MODEL=' "$env_file" 2>/dev/null | cut -d= -f2- | xargs) || true
+
+    if [[ -n "$model" ]]; then
+        local tmp
+        tmp=$(mktemp)
+        jq --arg m "$model" '.agents.defaults.model.primary = $m' "$config_file" > "$tmp" && mv "$tmp" "$config_file"
+        log "Model set to $model"
+    fi
 }
 
 configure_telegram_policy() {

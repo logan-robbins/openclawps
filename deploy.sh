@@ -151,8 +151,8 @@ ensure_password() {
 # }
 
 # --- .env loader + validation -------------------------------------------------
-REQUIRED_ENV_VARS=(XAI_API_KEY TELEGRAM_BOT_TOKEN)
-OPTIONAL_ENV_VARS=(OPENAI_API_KEY BRIGHTDATA_API_TOKEN TELEGRAM_USER_ID TAILSCALE_AUTHKEY)
+REQUIRED_ENV_VARS=(TELEGRAM_BOT_TOKEN)
+OPTIONAL_ENV_VARS=(OPENCLAW_MODEL XAI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY BRIGHTDATA_API_TOKEN TELEGRAM_USER_ID TAILSCALE_AUTHKEY)
 
 load_env() {
     if [[ ! -f "$ENV_FILE" ]]; then
@@ -180,6 +180,9 @@ load_env() {
     for var in "${OPTIONAL_ENV_VARS[@]}"; do
         export "$var=${!var:-}"
     done
+
+    # Default model if not specified
+    export OPENCLAW_MODEL="${OPENCLAW_MODEL:-xai/grok-4}"
 }
 
 # --- Telegram policy derivation -----------------------------------------------
@@ -210,8 +213,10 @@ render_cloud_init() {
     local rendered
     rendered="$(mktemp -t openclaw-cloud-init.XXXXXX)"
     envsubst '
+        ${OPENCLAW_MODEL}
         ${XAI_API_KEY}
         ${OPENAI_API_KEY}
+        ${ANTHROPIC_API_KEY}
         ${BRIGHTDATA_API_TOKEN}
         ${TELEGRAM_BOT_TOKEN}
         ${TELEGRAM_USER_ID}
