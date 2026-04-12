@@ -1,4 +1,4 @@
-# remote-claw
+# OpenClawOps
 
 ClawOps for OpenClaw agents on Azure. Continuously roll out system updates across a fleet of autonomous agents while preserving each agent's identity, workspace, credentials, and running state.
 
