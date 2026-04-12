@@ -8,6 +8,8 @@ Ops for [OpenClaw](https://openclaw.ai) agents. One command to deploy a fully eq
 
 OpenClaw gives you the AI brain and the Gateway. OpenClawps gives you the easy button to run that brain as a reliable, desktop-equipped cloud agent.
 
+Architecture diagrams and topology: [challengelogan.com/openclawps](https://challengelogan.com/openclawps)
+
 ## What this adds to OpenClaw
 
 - **One-command Azure deploy** -- `deploy.sh scratch` goes from zero to a working agent with Telegram, Chrome, and Claude Code in ~10 min. No manual VM setup.
