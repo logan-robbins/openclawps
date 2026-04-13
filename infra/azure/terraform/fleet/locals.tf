@@ -2,14 +2,15 @@ locals {
   fleet_manifest      = yamldecode(file("${path.root}/${var.fleet_manifest_path}"))
   azure               = local.fleet_manifest.azure
   defaults            = local.fleet_manifest.defaults
-  cloud_init_template = "${path.root}/../../../vm-runtime/cloud-init/image.yaml"
-  image_identifier    = local.azure.image_identifier
+  cloud_init_template = "${path.root}/../../../../vm-runtime/cloud-init/image.yaml"
   shared_tags         = merge(try(local.azure.tags, {}), var.resource_tags)
   empty_secret_template = {
     telegram_bot_token   = ""
     xai_api_key          = ""
     openai_api_key       = ""
     anthropic_api_key    = ""
+    moonshot_api_key     = ""
+    deepseek_api_key     = ""
     brightdata_api_token = ""
     tailscale_authkey    = ""
   }
@@ -22,7 +23,7 @@ locals {
   claws_with_secrets = {
     for claw_name, claw_config in local.claws :
     claw_name => merge(claw_config, {
-      secrets = merge(local.empty_secret_template, lookup(var.claw_secrets, claw_name, {}))
+      secrets = merge(local.empty_secret_template, try(var.claw_secrets[claw_name], {}))
     })
   }
 

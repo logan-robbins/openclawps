@@ -152,73 +152,78 @@ ENV_FILE=.env.alice VM_NAME=alice ./bin/deploy.sh # stamp out a claw, ~2 min
 
 - `bin/deploy.sh` -- canonical operator entrypoint for the current shell-based workflow
 - `infra/azure/shell/` -- Azure CLI implementation of scratch, bake, image, and upgrade
-- `infra/azure/terraform/` -- Phase 1 Terraform control plane: root module, reusable modules, and shared inputs
+- `infra/azure/terraform/shared/` -- Terraform root for shared infrastructure (resource group, VNet, NSG, image gallery)
+- `infra/azure/terraform/fleet/` -- Terraform root for claw VMs (per-claw resources driven by fleet manifest)
+- `infra/azure/terraform/modules/` -- reusable Terraform modules (shared-infra, image-gallery, claw-vm)
 - `infra/azure/packer/` -- reserved for the future golden-image build pipeline
 - `vm-runtime/` -- the VM payload: cloud-init templates, lifecycle scripts, seeded defaults, and update migrations
 - `fleet/` -- the canonical fleet manifest consumed by Terraform
 - `apps/topology/` -- isolated Vite/React app for the topology and architecture site
 
-## Terraform Phase 1
+## Terraform
 
-Phase 1 is now scaffolded under `infra/azure/terraform/`:
+Two separate Terraform roots under `infra/azure/terraform/`, each with its own state:
 
-- `modules/shared-infra/` manages the resource group, VNet, subnet, and shared NSG.
-- `modules/image-gallery/` manages the Azure Compute Gallery and the OpenClawps image definition.
-- `modules/claw-vm/` defines the resources each claw gets: public IP, NIC, NSG association, VM, managed data disk, data disk attachment, and cloud-init rendering from `vm-runtime/cloud-init/image.yaml`.
-- `fleet/claws.yaml` is the canonical declarative fleet manifest.
-- `terraform.tfvars` points the root module at that manifest.
+- **`shared/`** manages infrastructure deployed once: resource group, VNet, subnet, NSG, compute gallery, and image definition. Run this first, then leave it alone.
+- **`fleet/`** manages per-claw resources: public IP, NIC, VM, data disk, and cloud-init. Add or remove claws by editing `fleet/claws.yaml` and re-applying here. Data sources look up the shared infrastructure -- fleet never creates or destroys networking or gallery resources.
 
-Current Phase 1 scope:
+Both roots read `fleet/claws.yaml` for configuration. `bin/deploy.sh` and the shell scripts remain a parallel entrypoint for scratch installs and image baking.
 
-- `bin/deploy.sh` and `infra/azure/shell/deploy.sh` remain the shell entrypoint and will continue to exist.
-- `terraform plan` / `apply` is an additive control path for the image-based claw flow, not a shell replacement.
-- `scratch` and `bake` remain shell-driven for now.
-- Existing shell-created Azure resources must be imported into Terraform state or recreated cleanly before Terraform becomes the source of truth for those specific resources.
-
-Validate the Terraform configuration without configuring remote state:
+Validate without configuring remote state:
 
 ```bash
-cd infra/azure/terraform
-terraform init -backend=false
-terraform fmt -recursive
-terraform validate
+cd infra/azure/terraform/shared && terraform init -backend=false && terraform validate
+cd infra/azure/terraform/fleet  && terraform init -backend=false && terraform validate
 ```
 
-Create a secrets file before planning. Do not commit it:
+Create a secrets file before planning fleet. Do not commit it:
 
 ```hcl
-# infra/azure/terraform/secrets.auto.tfvars
+# infra/azure/terraform/fleet/secrets.auto.tfvars
 claw_secrets = {
   linux-desktop = {
     telegram_bot_token   = "123456789:token"
     xai_api_key          = ""
     openai_api_key       = ""
     anthropic_api_key    = ""
+    moonshot_api_key     = ""
+    deepseek_api_key     = ""
     brightdata_api_token = ""
     tailscale_authkey    = ""
   }
 }
 ```
 
-Use Azure Storage as the backend for shared state. The root module expects an `azurerm` backend block, so initialize it with a local backend file:
+Each root expects an `azurerm` backend. Create a backend file per root with a distinct state key:
 
 ```hcl
-# infra/azure/terraform/backend.tfbackend
+# infra/azure/terraform/shared/backend.tfbackend
 resource_group_name  = "tfstate"
 storage_account_name = "tfstateexample"
 container_name       = "tfstate"
-key                  = "openclawps.tfstate"
+key                  = "openclawps-shared.tfstate"
 ```
 
-Plan against the manifest and secrets file:
+```hcl
+# infra/azure/terraform/fleet/backend.tfbackend
+resource_group_name  = "tfstate"
+storage_account_name = "tfstateexample"
+container_name       = "tfstate"
+key                  = "openclawps-fleet.tfstate"
+```
+
+Plan and apply:
 
 ```bash
-cd infra/azure/terraform
-az login
+# Shared (once)
+cd infra/azure/terraform/shared
 terraform init -reconfigure -backend-config=backend.tfbackend
-terraform plan \
-  -var-file=terraform.tfvars \
-  -var-file=secrets.auto.tfvars
+terraform apply -var-file=terraform.tfvars
+
+# Fleet (day-to-day)
+cd infra/azure/terraform/fleet
+terraform init -reconfigure -backend-config=backend.tfbackend
+terraform plan -var-file=terraform.tfvars -var-file=secrets.auto.tfvars
 ```
 
 ## Configuration

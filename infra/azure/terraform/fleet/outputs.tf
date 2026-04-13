@@ -1,18 +1,3 @@
-output "resource_group_name" {
-  description = "Terraform-managed Azure resource group name."
-  value       = module.shared_infra.resource_group_name
-}
-
-output "gallery_name" {
-  description = "Azure Compute Gallery name."
-  value       = module.image_gallery.gallery_name
-}
-
-output "image_definition_name" {
-  description = "Azure Compute Gallery image definition name."
-  value       = module.image_gallery.image_definition_name
-}
-
 output "claw_public_ips" {
   description = "Public IP addresses keyed by claw name."
   value = {

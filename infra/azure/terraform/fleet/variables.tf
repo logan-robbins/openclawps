@@ -1,5 +1,5 @@
 variable "fleet_manifest_path" {
-  description = "Path to the fleet manifest YAML file, relative to the Terraform root."
+  description = "Path to the fleet manifest YAML file, relative to this Terraform root."
   type        = string
 }
 
@@ -16,6 +16,8 @@ variable "claw_secrets" {
     xai_api_key          = optional(string, "")
     openai_api_key       = optional(string, "")
     anthropic_api_key    = optional(string, "")
+    moonshot_api_key     = optional(string, "")
+    deepseek_api_key     = optional(string, "")
     brightdata_api_token = optional(string, "")
     tailscale_authkey    = optional(string, "")
   }))

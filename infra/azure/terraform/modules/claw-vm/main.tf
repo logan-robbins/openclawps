@@ -4,6 +4,8 @@ locals {
     XAI_API_KEY          = var.xai_api_key
     OPENAI_API_KEY       = var.openai_api_key
     ANTHROPIC_API_KEY    = var.anthropic_api_key
+    MOONSHOT_API_KEY     = var.moonshot_api_key
+    DEEPSEEK_API_KEY     = var.deepseek_api_key
     BRIGHTDATA_API_TOKEN = var.brightdata_api_token
     TELEGRAM_BOT_TOKEN   = var.telegram_bot_token
     TELEGRAM_USER_ID     = var.telegram_user_id

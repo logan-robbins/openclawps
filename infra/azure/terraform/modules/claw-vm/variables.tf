@@ -79,6 +79,18 @@ variable "anthropic_api_key" {
   default   = ""
 }
 
+variable "moonshot_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "deepseek_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 variable "brightdata_api_token" {
   type      = string
   sensitive = true

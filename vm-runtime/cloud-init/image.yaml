@@ -3,7 +3,7 @@
 # No package installs -- everything is baked into the image.
 # Injects secrets and triggers /opt/claw/boot.sh.
 #
-# ${VAR} placeholders are substituted by deploy.sh via envsubst
+# Placeholders are substituted by deploy.sh (envsubst) or Terraform (templatefile)
 # before az vm create. This file never contains actual secrets.
 
 write_files:

@@ -1,28 +1,26 @@
-module "shared_infra" {
-  source = "./modules/shared-infra"
+# ---------- Look up shared infrastructure ----------
 
-  location                    = local.azure.location
-  resource_group_name         = local.azure.resource_group_name
-  virtual_network_name        = local.azure.virtual_network_name
-  subnet_name                 = local.azure.subnet_name
-  network_security_group_name = local.azure.network_security_group_name
-  address_space               = local.azure.address_space
-  subnet_prefixes             = local.azure.subnet_prefixes
-  tags                        = local.shared_tags
+data "azurerm_resource_group" "this" {
+  name = local.azure.resource_group_name
 }
 
-module "image_gallery" {
-  source = "./modules/image-gallery"
-
-  location               = module.shared_infra.location
-  resource_group_name    = module.shared_infra.resource_group_name
-  gallery_name           = local.azure.gallery_name
-  image_definition_name  = local.azure.image_definition_name
-  image_identifier       = local.image_identifier
-  hyper_v_generation     = try(local.azure.hyper_v_generation, "V2")
-  trusted_launch_enabled = try(local.azure.trusted_launch_enabled, true)
-  tags                   = local.shared_tags
+data "azurerm_virtual_network" "this" {
+  name                = local.azure.virtual_network_name
+  resource_group_name = data.azurerm_resource_group.this.name
 }
+
+data "azurerm_subnet" "this" {
+  name                 = local.azure.subnet_name
+  virtual_network_name = data.azurerm_virtual_network.this.name
+  resource_group_name  = data.azurerm_resource_group.this.name
+}
+
+data "azurerm_network_security_group" "this" {
+  name                = local.azure.network_security_group_name
+  resource_group_name = data.azurerm_resource_group.this.name
+}
+
+# ---------- Per-claw resources ----------
 
 resource "random_password" "vm_password" {
   for_each = local.claws_with_secrets
@@ -37,13 +35,13 @@ resource "random_password" "vm_password" {
 }
 
 module "claw_vm" {
-  source   = "./modules/claw-vm"
+  source   = "../modules/claw-vm"
   for_each = local.claws_with_secrets
 
-  location                  = module.shared_infra.location
-  resource_group_name       = module.shared_infra.resource_group_name
-  subnet_id                 = module.shared_infra.subnet_id
-  network_security_group_id = module.shared_infra.network_security_group_id
+  location                  = data.azurerm_resource_group.this.location
+  resource_group_name       = data.azurerm_resource_group.this.name
+  subnet_id                 = data.azurerm_subnet.this.id
+  network_security_group_id = data.azurerm_network_security_group.this.id
   vm_name                   = each.key
   vm_size                   = each.value.vm_size
   admin_username            = each.value.admin_username
@@ -51,9 +49,9 @@ module "claw_vm" {
   source_image_id = format(
     "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/galleries/%s/images/%s/versions/%s",
     data.azurerm_client_config.current.subscription_id,
-    module.shared_infra.resource_group_name,
-    module.image_gallery.gallery_name,
-    module.image_gallery.image_definition_name,
+    data.azurerm_resource_group.this.name,
+    local.azure.gallery_name,
+    local.azure.image_definition_name,
     each.value.image_version,
   )
   data_disk_size_gb        = each.value.data_disk_size_gb
@@ -65,6 +63,8 @@ module "claw_vm" {
   xai_api_key              = each.value.secrets.xai_api_key
   openai_api_key           = each.value.secrets.openai_api_key
   anthropic_api_key        = each.value.secrets.anthropic_api_key
+  moonshot_api_key         = each.value.secrets.moonshot_api_key
+  deepseek_api_key         = each.value.secrets.deepseek_api_key
   brightdata_api_token     = each.value.secrets.brightdata_api_token
   tailscale_authkey        = each.value.secrets.tailscale_authkey
   enable_trusted_launch    = try(each.value.enable_trusted_launch, true)
