@@ -140,13 +140,23 @@ Message the Telegram bot. The agent responds.
 
 ## Image lifecycle
 
-```bash
-./bin/deploy.sh bake 1.0.0                        # capture as versioned image
-ENV_FILE=.env.alice VM_NAME=alice ./bin/deploy.sh # stamp out a claw, ~2 min
-./bin/deploy.sh upgrade alice --image 2.0.0       # swap image, keep state
-```
-
 **Image** = versioned system runtime (OS, packages, OpenClaw, Chrome, Claude Code, boot logic). **Data disk** = durable agent state (config, secrets, workspace, memory). Migration scripts in `vm-runtime/updates/` run automatically on upgrade.
+
+```bash
+# Build from source (Packer)
+cd infra/azure/packer
+packer init .
+packer build -var subscription_id=$(az account show --query id -o tsv) -var image_version=4.0.0 .
+
+# Or capture from a running VM (shell)
+./bin/deploy.sh bake 4.0.0
+
+# Stamp out a claw from the image
+ENV_FILE=.env.alice VM_NAME=alice ./bin/deploy.sh
+
+# Upgrade a claw to a new image version
+./bin/deploy.sh upgrade alice --image 4.0.0
+```
 
 ## Repository layout
 
@@ -155,7 +165,7 @@ ENV_FILE=.env.alice VM_NAME=alice ./bin/deploy.sh # stamp out a claw, ~2 min
 - `infra/azure/terraform/shared/` -- Terraform root for shared infrastructure (resource group, VNet, NSG, image gallery)
 - `infra/azure/terraform/fleet/` -- Terraform root for claw VMs (per-claw resources driven by fleet manifest)
 - `infra/azure/terraform/modules/` -- reusable Terraform modules (shared-infra, image-gallery, claw-vm)
-- `infra/azure/packer/` -- reserved for the future golden-image build pipeline
+- `infra/azure/packer/` -- Packer config and numbered install scripts for reproducible image builds
 - `vm-runtime/` -- the VM payload: cloud-init templates, lifecycle scripts, seeded defaults, and update migrations
 - `fleet/` -- the canonical fleet manifest consumed by Terraform
 - `apps/topology/` -- isolated Vite/React app for the topology and architecture site
@@ -225,6 +235,23 @@ cd infra/azure/terraform/fleet
 terraform init -reconfigure -backend-config=backend.tfbackend
 terraform plan -var-file=terraform.tfvars -var-file=secrets.auto.tfvars
 ```
+
+## Packer
+
+Reproducible image builds under `infra/azure/packer/`. Numbered scripts in `scripts/` replace the monolithic `scratch.yaml` cloud-init install:
+
+| Script | What it installs |
+|---|---|
+| `01-system-packages.sh` | xfce4, lightdm, x11vnc, build tools |
+| `02-desktop-config.sh` | lightdm autologin, xorg dummy, systemd units |
+| `03-nodejs-openclaw.sh` | Node.js 24, OpenClaw |
+| `04-chrome.sh` | Google Chrome (.deb) |
+| `05-claude-code.sh` | Claude Code CLI |
+| `06-tailscale.sh` | Tailscale client |
+| `07-system-setup.sh` | sudoers, service enablement |
+| `99-cleanup.sh` | apt clean, waagent deprovision |
+
+Packer also stages `vm-runtime/` files (boot.sh, run-updates.sh, defaults, updates) into `/opt/claw/` on the image. Two engineers building from the same commit get identical images.
 
 ## Configuration
 
