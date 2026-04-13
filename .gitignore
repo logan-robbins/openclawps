@@ -3,4 +3,10 @@
 !.env.template
 .vm-state
 node_modules/
+.state/
+dist/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.swp
 *.edited.md

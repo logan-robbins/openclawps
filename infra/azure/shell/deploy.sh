@@ -2,19 +2,27 @@
 # deploy.sh -- OpenClaw VM lifecycle manager
 #
 # Modes:
-#   ./deploy.sh              Deploy a new claw from a golden image (Phase 3)
-#   ./deploy.sh scratch      Build a complete VM from stock Ubuntu (Phase 1)
-#   ./deploy.sh bake [NAME]  Capture current VM as a reusable image (Phase 2)
-#   ./deploy.sh upgrade VM_NAME [--image IMAGE]  Upgrade a claw to a new image
+#   ./bin/deploy.sh              Deploy a new claw from a golden image (Phase 3)
+#   ./bin/deploy.sh scratch      Build a complete VM from stock Ubuntu (Phase 1)
+#   ./bin/deploy.sh bake [NAME]  Capture current VM as a reusable image (Phase 2)
+#   ./bin/deploy.sh upgrade VM_NAME [--image IMAGE]  Upgrade a claw to a new image
 #
 # Environment overrides:
-#   ENV_FILE=.env.alice VM_NAME=alice ./deploy.sh
-#   IMAGE_NAME=claw-base-v2 ./deploy.sh
-#   VM_SIZE=Standard_D4s_v3 ./deploy.sh scratch
+#   ENV_FILE=.env.alice VM_NAME=alice ./bin/deploy.sh
+#   IMAGE_NAME=claw-base-v2 ./bin/deploy.sh
+#   VM_SIZE=Standard_D4s_v3 ./bin/deploy.sh scratch
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+VM_RUNTIME_DIR="${REPO_ROOT}/vm-runtime"
+LIFECYCLE_DIR="${VM_RUNTIME_DIR}/lifecycle"
+DEFAULTS_DIR="${VM_RUNTIME_DIR}/defaults"
+UPDATES_DIR="${VM_RUNTIME_DIR}/updates"
+CLOUD_INIT_DIR="${VM_RUNTIME_DIR}/cloud-init"
+STATE_DIR="${REPO_ROOT}/.state/shell"
+DEPLOY_CMD="${DEPLOY_CMD:-./bin/deploy.sh}"
 
 # --- Parse mode ---------------------------------------------------------------
 MODE="${1:-image}"
@@ -30,7 +38,7 @@ case "$MODE" in
               ;;
     image)    ;; # default mode, no shift needed
     -h|--help)
-        echo "Usage: deploy.sh [scratch|bake [IMAGE_NAME]|upgrade VM_NAME [--image IMAGE_NAME]]"
+        echo "Usage: ${DEPLOY_CMD} [scratch|bake [IMAGE_NAME]|upgrade VM_NAME [--image IMAGE_NAME]]"
         echo ""
         echo "Modes:"
         echo "  (default)   Deploy from golden image with a fresh data disk"
@@ -41,7 +49,7 @@ case "$MODE" in
         ;;
     *)
         echo "Unknown mode: $MODE" >&2
-        echo "Usage: deploy.sh [scratch|bake [IMAGE_NAME]|upgrade VM_NAME [--image IMAGE_NAME]]" >&2
+        echo "Usage: ${DEPLOY_CMD} [scratch|bake [IMAGE_NAME]|upgrade VM_NAME [--image IMAGE_NAME]]" >&2
         exit 1
         ;;
 esac
@@ -62,11 +70,11 @@ GALLERY_NAME="${GALLERY_NAME:-clawGallery}"
 IMAGE_DEF="${IMAGE_DEF:-claw-base}"
 DATA_LUN=0
 
-ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/.env}"
-CLOUD_INIT_FULL="${SCRIPT_DIR}/cloud-init.yaml"
-CLOUD_INIT_SLIM="${SCRIPT_DIR}/cloud-init-slim.yaml"
-VM_STATE_FILE="${SCRIPT_DIR}/.vm-state"
-SOUL_FILE="${SCRIPT_DIR}/SOUL.md"
+ENV_FILE="${ENV_FILE:-${REPO_ROOT}/.env}"
+CLOUD_INIT_FULL="${CLOUD_INIT_DIR}/scratch.yaml"
+CLOUD_INIT_SLIM="${CLOUD_INIT_DIR}/image.yaml"
+VM_STATE_FILE="${STATE_DIR}/current.env"
+SOUL_FILE="${DEFAULTS_DIR}/workspace/SOUL.md"
 
 # =============================================================================
 # Shared functions
@@ -229,11 +237,12 @@ render_cloud_init() {
     echo "$rendered"
 }
 
-# --- .vm-state ----------------------------------------------------------------
+# --- Shell state --------------------------------------------------------------
 write_vm_state() {
     local ip="$1" vnc_pass="$2" extra_vm="${3:-$VM_NAME}"
+    mkdir -p "$STATE_DIR"
     cat > "$VM_STATE_FILE" <<EOF
-# Runtime state for the currently deployed VM. Gitignored. Overwritten by deploy.sh.
+# Runtime state for the current shell-managed VM. Gitignored. Overwritten by deploy.sh.
 IP=${ip}
 VM_PASSWORD=${VM_PASSWORD}
 VNC_URL=vnc://${ip}:5900
@@ -367,7 +376,7 @@ resolve_image() {
         --query "sort_by([],&name)[-1].id" -o tsv 2>/dev/null) || true
     if [[ -z "$latest_id" ]]; then
         echo "ERROR: No image versions found in gallery '$GALLERY_NAME/$IMAGE_DEF'." >&2
-        echo "Run './deploy.sh scratch' first, then './deploy.sh bake' to create an image." >&2
+        echo "Run '${DEPLOY_CMD} scratch' first, then '${DEPLOY_CMD} bake' to create an image." >&2
         exit 1
     fi
     echo "$latest_id"
@@ -401,12 +410,12 @@ stage_boot_files() {
     local tmpdir="/tmp/claw-stage-$$"
     ssh_cmd "$ip" "mkdir -p $tmpdir"
 
-    scp_to "$ip" "${SCRIPT_DIR}/boot.sh" "$tmpdir/boot.sh"
-    scp_to "$ip" "${SCRIPT_DIR}/run-updates.sh" "$tmpdir/run-updates.sh"
-    scp_to "$ip" "${SCRIPT_DIR}/start-claude.sh" "$tmpdir/start-claude.sh"
-    scp_to "$ip" "${SCRIPT_DIR}/verify.sh" "$tmpdir/verify.sh"
-    scp_to "$ip" "${SCRIPT_DIR}/defaults/" "$tmpdir/defaults"
-    scp_to "$ip" "${SCRIPT_DIR}/updates/" "$tmpdir/updates"
+    scp_to "$ip" "${LIFECYCLE_DIR}/boot.sh" "$tmpdir/boot.sh"
+    scp_to "$ip" "${LIFECYCLE_DIR}/run-updates.sh" "$tmpdir/run-updates.sh"
+    scp_to "$ip" "${LIFECYCLE_DIR}/start-claude.sh" "$tmpdir/start-claude.sh"
+    scp_to "$ip" "${LIFECYCLE_DIR}/verify.sh" "$tmpdir/verify.sh"
+    scp_to "$ip" "${DEFAULTS_DIR}/" "$tmpdir/defaults"
+    scp_to "$ip" "${UPDATES_DIR}/" "$tmpdir/updates"
 
     ssh_cmd "$ip" "
         sudo cp $tmpdir/boot.sh /opt/claw/boot.sh
@@ -428,7 +437,7 @@ stage_boot_files() {
 
 deploy_scratch() {
     if [[ ! -f "$CLOUD_INIT_FULL" ]]; then
-        echo "ERROR: cloud-init.yaml not found next to deploy.sh" >&2
+        echo "ERROR: scratch cloud-init not found at $CLOUD_INIT_FULL" >&2
         exit 1
     fi
 
@@ -502,14 +511,14 @@ deploy_scratch() {
 cloud-init has completed. OpenClaw gateway should be active.
 Boot files staged at /opt/claw/ -- ready to bake.
 
-Connection info (also in .vm-state):
+Connection info (also in ${VM_STATE_FILE}):
   VNC:  vnc://${ip}:5900
   VNC password:  ${vnc_pass}
   SSH:  ssh ${ADMIN_USER}@${ip}  (password: ${VM_PASSWORD})
 
 Next steps:
   1. Verify: message your Telegram bot
-  2. Bake:   ./deploy.sh bake claw-base-v1
+  2. Bake:   ${DEPLOY_CMD} bake claw-base-v1
 EOF
 }
 
@@ -601,8 +610,8 @@ do_bake() {
     echo "The source VM '$vm' has been generalized and can no longer be started."
     echo ""
     echo "Next steps:"
-    echo "  Deploy a new claw:  VM_NAME=test-claw ./deploy.sh"
-    echo "  Deploy with custom env:  ENV_FILE=.env.alice VM_NAME=alice ./deploy.sh"
+    echo "  Deploy a new claw:  VM_NAME=test-claw ${DEPLOY_CMD}"
+    echo "  Deploy with custom env:  ENV_FILE=.env.alice VM_NAME=alice ${DEPLOY_CMD}"
 }
 
 # =============================================================================
@@ -611,7 +620,7 @@ do_bake() {
 
 deploy_from_image() {
     if [[ ! -f "$CLOUD_INIT_SLIM" ]]; then
-        echo "ERROR: cloud-init-slim.yaml not found next to deploy.sh" >&2
+        echo "ERROR: image cloud-init not found at $CLOUD_INIT_SLIM" >&2
         exit 1
     fi
 
@@ -694,7 +703,7 @@ deploy_from_image() {
 
 [OK] Claw '$VM_NAME' deployed from image '$image_label' at $ip
 
-Connection info (also in .vm-state):
+Connection info (also in ${VM_STATE_FILE}):
   Password:  ${VM_PASSWORD}  (same for SSH and VNC)
   VNC:  vnc://${ip}:5900
   SSH:  ssh ${ADMIN_USER}@${ip}
@@ -718,7 +727,7 @@ do_upgrade() {
     local vm="${UPGRADE_VM}"
     local target_image="${UPGRADE_IMAGE:-}"
 
-    # Load password from .vm-state or .env
+    # Load password from shell state or .env
     if [[ -f "$VM_STATE_FILE" ]]; then
         load_vm_state
     fi
@@ -847,7 +856,7 @@ do_upgrade() {
 
 Data disk '$disk_name' reattached -- claw identity and state preserved.
 
-Connection info (also in .vm-state):
+Connection info (also in ${VM_STATE_FILE}):
   Password:  ${VM_PASSWORD}  (same for SSH and VNC)
   VNC:  vnc://${ip}:5900
   SSH:  ssh ${ADMIN_USER}@${ip}
@@ -863,7 +872,7 @@ if ! command -v envsubst >/dev/null 2>&1; then
     exit 1
 fi
 if ! command -v sshpass >/dev/null 2>&1; then
-    echo "ERROR: sshpass not found (used by deploy.sh only -- VMs accept normal password SSH)." >&2
+    echo "ERROR: sshpass not found (used by ${DEPLOY_CMD} only -- VMs accept normal password SSH)." >&2
     echo "Install: curl -L https://sourceforge.net/projects/sshpass/files/sshpass/1.10/sshpass-1.10.tar.gz | tar xz && cd sshpass-1.10 && ./configure && make && cp sshpass ~/.local/bin/" >&2
     exit 1
 fi

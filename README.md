@@ -133,7 +133,7 @@ graph TB
 
 ```bash
 cp .env.template .env && vi .env    # model, API keys, Telegram bot token
-./deploy.sh scratch                  # full install from stock Ubuntu, ~10 min
+./bin/deploy.sh scratch             # full install from stock Ubuntu, ~10 min
 ```
 
 Message the Telegram bot. The agent responds.
@@ -141,12 +141,22 @@ Message the Telegram bot. The agent responds.
 ## Image lifecycle
 
 ```bash
-./deploy.sh bake 1.0.0                          # capture as versioned image
-ENV_FILE=.env.alice VM_NAME=alice ./deploy.sh    # stamp out a claw, ~2 min
-./deploy.sh upgrade alice --image 2.0.0          # swap image, keep state
+./bin/deploy.sh bake 1.0.0                        # capture as versioned image
+ENV_FILE=.env.alice VM_NAME=alice ./bin/deploy.sh # stamp out a claw, ~2 min
+./bin/deploy.sh upgrade alice --image 2.0.0       # swap image, keep state
 ```
 
-**Image** = versioned system runtime (OS, packages, OpenClaw, Chrome, Claude Code, boot logic). **Data disk** = durable agent state (config, secrets, workspace, memory). Migration scripts in `updates/` run automatically on upgrade.
+**Image** = versioned system runtime (OS, packages, OpenClaw, Chrome, Claude Code, boot logic). **Data disk** = durable agent state (config, secrets, workspace, memory). Migration scripts in `vm-runtime/updates/` run automatically on upgrade.
+
+## Repository layout
+
+- `bin/deploy.sh` -- canonical operator entrypoint for the current shell-based workflow
+- `infra/azure/shell/` -- Azure CLI implementation of scratch, bake, image, and upgrade
+- `infra/azure/terraform/` -- reserved for the declarative control plane from `UPDATE.md`
+- `infra/azure/packer/` -- reserved for the future golden-image build pipeline
+- `vm-runtime/` -- the VM payload: cloud-init templates, lifecycle scripts, seeded defaults, and update migrations
+- `fleet/` -- reserved for environment-specific manifests like future `claws.yaml`
+- `apps/topology/` -- isolated Vite/React app for the topology and architecture site
 
 ## Configuration
 
@@ -173,7 +183,7 @@ Each claw gets its own `.env`:
 ## Connect
 
 ```bash
-ssh azureuser@<ip>       # password in .vm-state
+ssh azureuser@<ip>       # password in .state/shell/current.env
 open vnc://<ip>:5900     # same password
 ```
 

@@ -120,7 +120,7 @@ seed_new_disk() {
         log "Seeded workspace defaults"
     fi
 
-    # Move secrets placed by cloud-init-slim.yaml into the data disk
+    # Move secrets placed by vm-runtime/cloud-init/image.yaml into the data disk
     local ci_env="${HOME_DIR}/.openclaw/.env"
     if [[ -f "$ci_env" ]]; then
         cp "$ci_env" "${DATA_MOUNT}/openclaw/.env"

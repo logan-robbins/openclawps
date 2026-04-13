@@ -5,7 +5,7 @@
 #
 # Secrets (XAI/OpenAI/BrightData/Telegram tokens and SOUL.md base64 body) are
 # substituted via envsubst BEFORE `az vm create` runs. See deploy.sh for the
-# substitution logic. cloud-init.yaml itself never contains secrets -- it
+# substitution logic. scratch.yaml itself never contains secrets -- it
 # contains ${VAR} placeholders only.
 #
 # Based on the shape of the Microsoft tutorial
@@ -267,7 +267,7 @@ write_files:
       }
 
   # ---- SOUL.md (agent identity) -----------------------------------------------
-  # Base64-encoded at deploy time from the user's local SOUL.md (if present)
+  # Base64-encoded at deploy time from vm-runtime/defaults/workspace/SOUL.md
   # or from a minimal placeholder (if absent). See deploy.sh.
   - path: /home/azureuser/.openclaw/SOUL.md
     # ownership set by runcmd chown after user creation

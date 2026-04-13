@@ -1,0 +1,33 @@
+{
+  "name": "remote-claw",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ClawOps for OpenClaw agents on Azure. Continuously roll out system updates across a fleet of autonomous agents while preserving each agent's identity, workspace, credentials, and running state.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/logan-robbins/openclawops.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/logan-robbins/openclawops/issues"
+  },
+  "homepage": "https://github.com/logan-robbins/openclawops#readme",
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.8"
+  },
+  "dependencies": {
+    "@types/react-dom": "^19.2.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  }
+}
