@@ -1,0 +1,59 @@
+name: Validate
+
+on:
+  pull_request:
+    paths:
+      - "infra/azure/terraform/**"
+      - "infra/azure/packer/**"
+      - "fleet/**"
+      - "vm-runtime/**"
+
+jobs:
+  terraform-shared:
+    name: Validate shared/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+        working-directory: infra/azure/terraform
+
+      - name: terraform init (shared)
+        run: terraform init -backend=false
+        working-directory: infra/azure/terraform/shared
+
+      - name: terraform validate (shared)
+        run: terraform validate
+        working-directory: infra/azure/terraform/shared
+
+  terraform-fleet:
+    name: Validate fleet/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: terraform init (fleet)
+        run: terraform init -backend=false
+        working-directory: infra/azure/terraform/fleet
+
+      - name: terraform validate (fleet)
+        run: terraform validate
+        working-directory: infra/azure/terraform/fleet
+
+  packer:
+    name: Validate Packer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-packer@v3
+
+      - name: packer init
+        run: packer init .
+        working-directory: infra/azure/packer
+
+      - name: packer validate
+        run: packer validate -var "subscription_id=00000000-0000-0000-0000-000000000000" -var "image_version=0.0.0" .
+        working-directory: infra/azure/packer

@@ -168,7 +168,36 @@ ENV_FILE=.env.alice VM_NAME=alice ./bin/deploy.sh
 - `infra/azure/packer/` -- Packer config and numbered install scripts for reproducible image builds
 - `vm-runtime/` -- the VM payload: cloud-init templates, lifecycle scripts, seeded defaults, and update migrations
 - `fleet/` -- the canonical fleet manifest consumed by Terraform
+- `.github/workflows/` -- CI/CD: PR validation, image baking, fleet deployment
 - `apps/topology/` -- isolated Vite/React app for the topology and architecture site
+
+## CI/CD
+
+Three GitHub Actions workflows automate the image-to-fleet pipeline:
+
+| Workflow | Triggers | What it does |
+|---|---|---|
+| **Validate** (`validate.yml`) | PR touching `infra/`, `fleet/`, `vm-runtime/` | `terraform fmt -check`, `terraform validate`, `packer validate` |
+| **Bake Golden Image** (`bake-image.yml`) | Push to main touching `packer/**` or `vm-runtime/**` | Packer build → publish to Compute Gallery |
+| **Deploy Fleet** (`deploy-fleet.yml`) | Push to main touching `fleet/**` or `terraform/fleet/**`, or after a successful bake | Terraform plan → apply → `verify.sh` on each claw via SSH |
+
+The deploy workflow uses a plan/apply split with a `production` environment gate. The verify job SSHs into each claw and runs the 33-point health check.
+
+### GitHub secrets required
+
+| Secret | Description |
+|---|---|
+| `AZURE_CLIENT_ID` | Service principal or managed identity client ID (OIDC) |
+| `AZURE_TENANT_ID` | Azure AD tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Target subscription |
+| `TF_STATE_RESOURCE_GROUP` | Resource group for the Terraform state storage account |
+| `TF_STATE_STORAGE_ACCOUNT` | Storage account name for remote state |
+| `TF_STATE_CONTAINER` | Blob container name |
+| `CLAW_SECRETS_JSON` | JSON object matching the `claw_secrets` Terraform variable |
+
+### Azure OIDC setup
+
+The workflows use [workload identity federation](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation) (OIDC) instead of stored credentials. Create a federated credential on your service principal for `repo:<owner>/<repo>:ref:refs/heads/main`.
 
 ## Terraform
 

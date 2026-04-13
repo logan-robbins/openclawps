@@ -1,0 +1,78 @@
+name: Bake Golden Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/azure/packer/**"
+      - "vm-runtime/**"
+  workflow_dispatch:
+    inputs:
+      image_version:
+        description: "Image version override (e.g. 5.0.0). Default: YYYY.MM.DD-<sha>"
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ARM_USE_OIDC: true
+  PACKER_DIR: infra/azure/packer
+
+jobs:
+  bake:
+    name: Build and publish image
+    runs-on: ubuntu-latest
+    outputs:
+      image_version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image version
+        id: version
+        run: |
+          if [[ -n "${{ github.event.inputs.image_version }}" ]]; then
+            echo "version=${{ github.event.inputs.image_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(date +%Y.%m.%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Packer init
+        run: packer init .
+        working-directory: ${{ env.PACKER_DIR }}
+
+      - name: Packer validate
+        run: |
+          packer validate \
+            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var "image_version=${{ steps.version.outputs.version }}" \
+            .
+        working-directory: ${{ env.PACKER_DIR }}
+
+      - name: Packer build
+        run: |
+          packer build \
+            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var "image_version=${{ steps.version.outputs.version }}" \
+            -color=false \
+            .
+        working-directory: ${{ env.PACKER_DIR }}
+
+      - name: Summary
+        run: |
+          echo "### Image published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** \`${{ steps.version.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Gallery:** clawGallery / claw-base" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`$(git rev-parse --short HEAD)\`" >> "$GITHUB_STEP_SUMMARY"

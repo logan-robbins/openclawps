@@ -1,0 +1,223 @@
+name: Deploy Fleet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fleet/**"
+      - "infra/azure/terraform/fleet/**"
+      - "infra/azure/terraform/modules/**"
+      - "vm-runtime/cloud-init/**"
+  workflow_run:
+    workflows: ["Bake Golden Image"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ARM_USE_OIDC: true
+  TF_DIR: infra/azure/terraform/fleet
+
+jobs:
+  plan:
+    name: Terraform plan
+    runs-on: ubuntu-latest
+    # Skip if triggered by a failed bake
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Write backend config
+        run: |
+          cat > backend.tfbackend <<EOF
+          resource_group_name  = "${{ secrets.TF_STATE_RESOURCE_GROUP }}"
+          storage_account_name = "${{ secrets.TF_STATE_STORAGE_ACCOUNT }}"
+          container_name       = "${{ secrets.TF_STATE_CONTAINER }}"
+          key                  = "openclawps-fleet.tfstate"
+          EOF
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Write secrets
+        run: |
+          cat > ci.auto.tfvars <<'VARS'
+          claw_secrets = ${{ secrets.CLAW_SECRETS_JSON }}
+          VARS
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform init
+        run: terraform init -reconfigure -backend-config=backend.tfbackend
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          terraform plan -detailed-exitcode -out=tfplan \
+            -var-file=terraform.tfvars \
+            2>&1 | tee plan-output.txt
+          exit_code=${PIPESTATUS[0]}
+          if [[ $exit_code -eq 2 ]]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          elif [[ $exit_code -eq 0 ]]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            exit $exit_code
+          fi
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Upload plan artifact
+        if: steps.plan.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_DIR }}/tfplan
+          retention-days: 1
+
+  apply:
+    name: Terraform apply
+    needs: plan
+    if: needs.plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Write backend config
+        run: |
+          cat > backend.tfbackend <<EOF
+          resource_group_name  = "${{ secrets.TF_STATE_RESOURCE_GROUP }}"
+          storage_account_name = "${{ secrets.TF_STATE_STORAGE_ACCOUNT }}"
+          container_name       = "${{ secrets.TF_STATE_CONTAINER }}"
+          key                  = "openclawps-fleet.tfstate"
+          EOF
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Write secrets
+        run: |
+          cat > ci.auto.tfvars <<'VARS'
+          claw_secrets = ${{ secrets.CLAW_SECRETS_JSON }}
+          VARS
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform init
+        run: terraform init -reconfigure -backend-config=backend.tfbackend
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Download plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_DIR }}
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Extract claw IPs
+        id: ips
+        run: |
+          terraform output -json claw_public_ips > /tmp/claw-ips.json
+          echo "ips=$(cat /tmp/claw-ips.json)" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ env.TF_DIR }}
+
+  verify:
+    name: Post-deploy health checks
+    needs: apply
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Write backend config
+        run: |
+          cat > backend.tfbackend <<EOF
+          resource_group_name  = "${{ secrets.TF_STATE_RESOURCE_GROUP }}"
+          storage_account_name = "${{ secrets.TF_STATE_STORAGE_ACCOUNT }}"
+          container_name       = "${{ secrets.TF_STATE_CONTAINER }}"
+          key                  = "openclawps-fleet.tfstate"
+          EOF
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform init
+        run: terraform init -reconfigure -backend-config=backend.tfbackend
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
+      - name: Wait for VMs to boot
+        run: sleep 120
+
+      - name: Run verify.sh on each claw
+        run: |
+          set -euo pipefail
+          claw_ips=$(terraform output -json claw_public_ips)
+          claw_passwords=$(terraform output -json claw_vm_passwords)
+          failed=0
+
+          for claw in $(echo "$claw_ips" | jq -r 'keys[]'); do
+            ip=$(echo "$claw_ips" | jq -r ".\"$claw\"")
+            password=$(echo "$claw_passwords" | jq -r ".\"$claw\"")
+
+            echo "=== Verifying $claw ($ip) ==="
+            if sshpass -p "$password" ssh -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=30 "azureuser@$ip" "sudo /opt/claw/verify.sh"; then
+              echo "--- $claw: PASSED ---"
+            else
+              echo "--- $claw: FAILED ---"
+              failed=1
+            fi
+            echo ""
+          done
+
+          if [[ $failed -ne 0 ]]; then
+            echo "::error::One or more claws failed health checks"
+            exit 1
+          fi
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Fleet deploy complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`$(git rev-parse --short HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Verify:** check job logs for per-claw results" >> "$GITHUB_STEP_SUMMARY"
