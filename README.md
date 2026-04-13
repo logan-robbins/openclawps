@@ -164,7 +164,7 @@ Phase 1 is now scaffolded under `infra/azure/terraform/`:
 
 - `modules/shared-infra/` manages the resource group, VNet, subnet, and shared NSG.
 - `modules/image-gallery/` manages the Azure Compute Gallery and the OpenClawps image definition.
-- `modules/claw-vm/` manages one claw VM: public IP, NIC, NSG association, managed data disk, data disk attachment, and cloud-init rendering from `vm-runtime/cloud-init/image.yaml`.
+- `modules/claw-vm/` defines the resources each claw gets: public IP, NIC, NSG association, VM, managed data disk, data disk attachment, and cloud-init rendering from `vm-runtime/cloud-init/image.yaml`.
 - `fleet/claws.yaml` is the canonical declarative fleet manifest.
 - `terraform.tfvars` points the root module at that manifest.
 
