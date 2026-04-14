@@ -38,6 +38,10 @@ This file documents what is specific to this claw VM. Skills define how tools wo
 
 - Search: enabled
 - Fetch: enabled
+- **Bright Data MCP**: web scraping, search engines, structured data extraction
+  - Tools: `search_engine`, `scrape_as_markdown`, `scrape_as_html`, `scrape_batch`, `search_engine_batch`
+  - Structured endpoints: `web_data_reuter_news`, `web_data_github_repository_file`, `web_data_yahoo_finance_business`
+  - Token is sourced from `BRIGHTDATA_API_TOKEN` in `.env`
 
 ---
 
