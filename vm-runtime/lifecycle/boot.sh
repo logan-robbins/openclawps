@@ -302,6 +302,11 @@ start_services() {
     # OpenClaw gateway
     systemctl restart openclaw-gateway 2>/dev/null || true
 
+    # PhantomTouch relay (phone automation bridge)
+    if [[ -f /etc/systemd/system/phantom-relay.service ]]; then
+        systemctl restart phantom-relay 2>/dev/null || true
+    fi
+
     # Claude Code remote-control (if start-claude.sh exists)
     if [[ -x /opt/claw/start-claude.sh ]]; then
         sudo -u "${ADMIN_USER}" /opt/claw/start-claude.sh || true

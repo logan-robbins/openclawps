@@ -124,6 +124,29 @@ else
     fail "nothing listening on port 18789"
 fi
 
+# -- PhantomTouch relay (optional) -----------------------------------------------
+echo "PhantomTouch:"
+if [[ -f /etc/systemd/system/phantom-relay.service ]]; then
+    state=$(systemctl is-active phantom-relay 2>/dev/null)
+    if [[ "$state" == "active" || "$state" == "activating" ]]; then
+        pass "phantom-relay is $state"
+    else
+        fail "phantom-relay is $state"
+    fi
+    if ss -tlnp 2>/dev/null | grep -q ':9090'; then
+        pass "relay HTTP listening on port 9090"
+    else
+        fail "nothing listening on port 9090"
+    fi
+    if ss -tlnp 2>/dev/null | grep -q ':9091'; then
+        pass "relay WS listening on port 9091"
+    else
+        fail "nothing listening on port 9091"
+    fi
+else
+    warn "phantom-relay not installed (optional)"
+fi
+
 # -- Binaries -------------------------------------------------------------------
 echo "Binaries:"
 for bin in openclaw node npm google-chrome-stable claude tmux jq git x11vnc; do

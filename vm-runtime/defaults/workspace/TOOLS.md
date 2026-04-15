@@ -43,6 +43,15 @@ This file documents what is specific to this claw VM. Skills define how tools wo
   - Structured endpoints: `web_data_reuter_news`, `web_data_github_repository_file`, `web_data_yahoo_finance_business`
   - Token is sourced from `BRIGHTDATA_API_TOKEN` in `.env`
 
+## PhantomTouch (if RELAY_TOKEN set)
+
+- **Relay HTTP:** port 9090 (localhost only — MCP server talks here)
+- **Relay WS:** port 9091 (phone connects here from the internet)
+- **MCP tools:** `phantom_screenshot`, `phantom_tap`, `phantom_tap_and_type`, `phantom_swipe`, `phantom_open_url`, `phantom_launch_app`, `phantom_find_and_tap`, `phantom_find_element`, `phantom_press_back`, `phantom_press_home`, `phantom_wait_for_element`, `phantom_chrome_action`, `phantom_batch`
+- **Test:** `curl -s http://localhost:9090/health | jq .`
+- **Screenshot test:** `curl -s -X POST http://localhost:9090/execute -d '{"action":"screenshot","scale":0.5}' | jq '.result.image' | wc -c`
+- **Phone status:** check relay health endpoint — `phone_connected: true` means the phone's WS is live
+
 ---
 
 Add whatever helps you do your job. This is your cheat sheet.

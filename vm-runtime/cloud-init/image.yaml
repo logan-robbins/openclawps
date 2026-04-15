@@ -21,6 +21,7 @@ write_files:
       TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
       VM_PASSWORD=${VM_PASSWORD}
       TAILSCALE_AUTHKEY=${TAILSCALE_AUTHKEY}
+      RELAY_TOKEN=${RELAY_TOKEN}
 
 runcmd:
   - chown -R azureuser:azureuser /home/azureuser

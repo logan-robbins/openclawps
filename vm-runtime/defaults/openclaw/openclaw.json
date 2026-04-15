@@ -49,6 +49,14 @@
             "input": ["text"],
             "contextWindow": 200000,
             "maxTokens": 200000
+          },
+          {
+            "id": "grok-2-vision-1212",
+            "name": "Grok 2 Vision",
+            "reasoning": false,
+            "input": ["text", "image"],
+            "contextWindow": 32768,
+            "maxTokens": 32768
           }
         ]
       },
