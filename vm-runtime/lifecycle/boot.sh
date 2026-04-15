@@ -235,6 +235,14 @@ setup_symlinks() {
 
     ln -sfn "${DATA_MOUNT}/vnc-password.txt" "${HOME_DIR}/vnc-password.txt"
 
+    # SSH keys from data disk (persist across VM replacements)
+    if [[ -d "${DATA_MOUNT}/ssh" ]]; then
+        mkdir -p "${HOME_DIR}/.ssh"
+        ln -sf "${DATA_MOUNT}/ssh/id_ed25519" "${HOME_DIR}/.ssh/id_ed25519"
+        ln -sf "${DATA_MOUNT}/ssh/id_ed25519.pub" "${HOME_DIR}/.ssh/id_ed25519.pub"
+        chown -h "${ADMIN_USER}:${ADMIN_USER}" "${HOME_DIR}/.ssh/id_ed25519" "${HOME_DIR}/.ssh/id_ed25519.pub"
+    fi
+
     # Recreate .xsession (removed by waagent deprovision)
     echo "xfce4-session" > "${HOME_DIR}/.xsession"
     chmod 644 "${HOME_DIR}/.xsession"
