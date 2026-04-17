@@ -1,19 +1,26 @@
 azure:
-  location: eastus
-  resource_group_name: rg-linux-desktop
-  virtual_network_name: rg-linux-desktop-vnet
+  location: westus
+  resource_group_name: rg-claw-westus
+  virtual_network_name: rg-claw-westus-vnet
   subnet_name: default
-  network_security_group_name: rg-linux-desktop-nsg
+  network_security_group_name: rg-claw-westus-nsg
   address_space:
     - 10.0.0.0/16
   subnet_prefixes:
     - 10.0.0.0/24
   gallery_name: clawGallery
-  image_definition_name: claw-base
-  image_identifier:
-    publisher: claw
-    offer: claw-vm
-    sku: base
+  # The fleet root reads `fleet_image_definition_name` to know which image to deploy.
+  # The shared root reads `image_definitions` to create them all in the gallery.
+  fleet_image_definition_name: claw-os
+  image_definitions:
+    claw-desktop-gpu:
+      publisher: claw
+      offer: claw-vm
+      sku: desktop-gpu
+    claw-os:
+      publisher: claw
+      offer: claw-vm
+      sku: os
   hyper_v_generation: V2
   trusted_launch_enabled: true
   tags:
@@ -22,10 +29,10 @@ azure:
 
 defaults:
   admin_username: azureuser
-  vm_size: Standard_D4s_v3
+  vm_size: Standard_NV8ads_V710_v5
   data_disk_size_gb: 32
   data_disk_sku: Standard_LRS
-  image_version: "4.0.0"
+  image_version: "1.0.0"
   model: xai/grok-4.20-0309-reasoning
   telegram_user_id: ""
   enable_trusted_launch: true

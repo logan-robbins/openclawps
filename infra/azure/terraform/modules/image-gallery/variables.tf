@@ -10,16 +10,14 @@ variable "gallery_name" {
   type = string
 }
 
-variable "image_definition_name" {
-  type = string
-}
-
-variable "image_identifier" {
-  type = object({
+# Map of image-definition-name -> identifier (publisher/offer/sku).
+# Each entry produces one azurerm_shared_image resource in the gallery.
+variable "image_definitions" {
+  type = map(object({
     publisher = string
     offer     = string
     sku       = string
-  })
+  }))
 }
 
 variable "hyper_v_generation" {

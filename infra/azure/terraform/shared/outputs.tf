@@ -33,12 +33,12 @@ output "gallery_id" {
   value       = module.image_gallery.gallery_id
 }
 
-output "image_definition_name" {
-  description = "Azure Compute Gallery image definition name."
-  value       = module.image_gallery.image_definition_name
+output "image_definition_names" {
+  description = "All image definitions created in the gallery."
+  value       = module.image_gallery.image_definition_names
 }
 
-output "image_definition_id" {
-  description = "Azure Compute Gallery image definition ID."
-  value       = module.image_gallery.image_definition_id
+output "image_definition_ids" {
+  description = "Map of image definition name -> resource ID."
+  value       = module.image_gallery.image_definition_ids
 }

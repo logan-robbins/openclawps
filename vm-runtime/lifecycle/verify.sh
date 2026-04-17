@@ -2,7 +2,6 @@
 # /opt/claw/verify.sh -- post-deploy health checks for claw VMs
 #
 # Run on the VM after deploy or upgrade. Exits 0 if all checks pass, 1 otherwise.
-# deploy.sh calls this via SSH at the end of every deploy/upgrade.
 
 set -uo pipefail
 
@@ -45,9 +44,7 @@ check "openclaw.json is valid JSON" jq empty /home/azureuser/.openclaw/openclaw.
 check "exec-approvals.json exists" test -f /home/azureuser/.openclaw/exec-approvals.json
 check ".env exists on data disk" test -f /mnt/claw-data/openclaw/.env
 
-# Verify required env vars are non-empty
 env_file="/mnt/claw-data/openclaw/.env"
-# At least one provider API key must be set
 provider_key_found=false
 for var in XAI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY MOONSHOT_API_KEY DEEPSEEK_API_KEY; do
     val=$(grep "^${var}=" "$env_file" 2>/dev/null | cut -d= -f2-)
@@ -92,9 +89,42 @@ else
     fail "telegram channel not enabled"
 fi
 
+# -- AMD GPU --------------------------------------------------------------------
+echo "GPU:"
+if lspci -d 1002:7461 2>/dev/null | grep -q 7461; then
+    pass "AMD Radeon Pro V710 (1002:7461) detected"
+else
+    fail "AMD Radeon Pro V710 not detected on PCI bus"
+fi
+if lsmod 2>/dev/null | grep -q '^amdgpu'; then
+    pass "amdgpu kernel module loaded"
+else
+    fail "amdgpu kernel module not loaded"
+fi
+if command -v amd-smi >/dev/null 2>&1; then
+    if amd-smi monitor -p 2>/dev/null | head -n1 | grep -qi 'gpu\|power'; then
+        pass "amd-smi reports GPU state"
+    else
+        warn "amd-smi installed but did not report state"
+    fi
+else
+    warn "amd-smi not installed (graphics-only install may omit it)"
+fi
+check "X11 BusID config /etc/X11/xorg.conf.d/00-amdgpu.conf exists" test -f /etc/X11/xorg.conf.d/00-amdgpu.conf
+
 # -- Systemd services -----------------------------------------------------------
-echo "Services:"
-for svc in lightdm x11vnc openclaw-gateway; do
+echo "Services (human display):"
+for svc in lightdm xrdp sunshine; do
+    state=$(systemctl is-active "$svc" 2>/dev/null)
+    if [[ "$state" == "active" || "$state" == "activating" ]]; then
+        pass "$svc is $state"
+    else
+        fail "$svc is $state"
+    fi
+done
+
+echo "Services (agent display):"
+for svc in openclaw-xvfb openclaw-wm openclaw-gateway; do
     state=$(systemctl is-active "$svc" 2>/dev/null)
     if [[ "$state" == "active" || "$state" == "activating" ]]; then
         pass "$svc is $state"
@@ -104,16 +134,26 @@ for svc in lightdm x11vnc openclaw-gateway; do
 done
 
 # -- Display --------------------------------------------------------------------
-echo "Display:"
-check "X11 socket /tmp/.X11-unix/X0 exists" test -S /tmp/.X11-unix/X0
+echo "Displays:"
+check "X11 socket /tmp/.X11-unix/X0 exists (human :0)" test -S /tmp/.X11-unix/X0
+check "X11 socket /tmp/.X11-unix/X99 exists (agent :99)" test -S /tmp/.X11-unix/X99
 
-# -- VNC ------------------------------------------------------------------------
-echo "VNC:"
-check "VNC password file exists" test -f /mnt/claw-data/vnc-password.txt
-if ss -tlnp 2>/dev/null | grep -q ':5900'; then
-    pass "x11vnc listening on port 5900"
+# -- Remote desktop ports -------------------------------------------------------
+echo "Remote-desktop ports:"
+if ss -tlnp 2>/dev/null | grep -q ':3389'; then
+    pass "xrdp listening on port 3389"
 else
-    fail "nothing listening on port 5900"
+    fail "nothing listening on 3389 (xrdp)"
+fi
+if ss -tlnp 2>/dev/null | grep -q ':47989'; then
+    pass "sunshine listening on port 47989 (HTTP)"
+else
+    fail "nothing listening on 47989 (Sunshine)"
+fi
+if ss -tlnp 2>/dev/null | grep -q ':5901'; then
+    pass "openclaw-observe x11vnc listening on port 5901"
+else
+    warn "no observer on 5901 (openclaw-observe is optional)"
 fi
 
 # -- Gateway port ---------------------------------------------------------------
@@ -149,7 +189,7 @@ fi
 
 # -- Binaries -------------------------------------------------------------------
 echo "Binaries:"
-for bin in openclaw node npm google-chrome-stable claude tmux jq git x11vnc; do
+for bin in openclaw node npm google-chrome-stable claude tmux jq git xrdp sunshine Xvfb xfwm4; do
     if command -v "$bin" >/dev/null 2>&1; then
         pass "$bin found"
     else

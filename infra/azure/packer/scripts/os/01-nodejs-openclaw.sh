@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 03-nodejs-openclaw.sh -- install Node.js 24 and OpenClaw
+# 01-nodejs-openclaw.sh -- install Node.js 24 and OpenClaw
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive

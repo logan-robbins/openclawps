@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 07-system-setup.sh -- sudoers, directory structure, enable services
+# 05-system-setup.sh -- sudoers, directory structure, enable agent + tooling services
 set -euo pipefail
 
 # Passwordless sudo for azureuser (full agent autonomy)
@@ -21,8 +21,13 @@ apt-get install -y gh
 # codex CLI
 npm install -g @openai/codex 2>/dev/null || true
 
-# Enable graphical target + services
+# Enable graphical target + services baked by claw-desktop-gpu
 systemctl set-default graphical.target
 systemctl enable lightdm
-systemctl enable x11vnc
-systemctl enable openclaw-gateway
+systemctl enable xrdp
+systemctl enable sunshine
+
+# Enable OpenClaw services (Xvfb + WM + gateway) — installed by 06-openclaw-services.sh
+systemctl enable openclaw-xvfb.service
+systemctl enable openclaw-wm.service
+systemctl enable openclaw-gateway.service

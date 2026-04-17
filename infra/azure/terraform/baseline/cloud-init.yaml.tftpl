@@ -1,0 +1,134 @@
+#cloud-config
+# GPU-accelerated Linux desktop on top of AMD's Azure marketplace image.
+# The base image already has:
+#   - Ubuntu + amdgpu driver pre-installed
+#   - Kernel pinned to a version the driver supports
+#   - Secure Boot signed modules
+# We ONLY add the desktop/remote-access layer: XFCE + LightDM + xrdp + Sunshine.
+
+# Do NOT run package_upgrade: true — it pulls a kernel the vendor driver
+# won't build against. The image is already up to date for its intent.
+package_update: true
+
+packages:
+  - xfce4
+  - xfce4-goodies
+  - lightdm
+  - dbus-x11
+  - xrdp
+  - xorgxrdp
+  - curl
+  - wget
+  - jq
+  - tmux
+  - xdotool
+  - wmctrl
+
+# Set a password for the Azure-provisioned admin user (Azure already set up
+# the user + SSH key from the VM resource — do NOT redefine `users:` here,
+# that wipes authorized_keys).
+chpasswd:
+  expire: false
+  users:
+    - name: ${admin_username}
+      password: ${admin_password}
+      type: text
+
+ssh_pwauth: true
+
+write_files:
+  - path: /etc/lightdm/lightdm.conf.d/50-autologin.conf
+    permissions: "0644"
+    content: |
+      [Seat:*]
+      autologin-user=${admin_username}
+      autologin-user-timeout=0
+      user-session=xfce
+
+  - path: /etc/xrdp/startwm.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      if [ -e /tmp/.X11-unix/X0 ]; then
+        exec env DISPLAY=:0 dbus-launch --exit-with-session true
+      fi
+      . /etc/X11/Xsession
+
+  - path: /etc/X11/Xwrapper.config
+    permissions: "0644"
+    content: |
+      allowed_users=anybody
+      needs_root_rights=yes
+
+  - path: /etc/xdg/autostart/disable-blanking.desktop
+    permissions: "0644"
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=Disable screen blanking and DPMS
+      Exec=bash -c "xset s off s noblank -dpms"
+      OnlyShowIn=XFCE;
+      NoDisplay=true
+
+  - path: /etc/systemd/system/sunshine.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Sunshine self-hosted game stream host (Moonlight)
+      After=lightdm.service network-online.target
+      Wants=lightdm.service network-online.target
+
+      [Service]
+      Type=simple
+      User=${admin_username}
+      Group=${admin_username}
+      Environment=HOME=/home/${admin_username}
+      Environment=DISPLAY=:0
+      Environment=XAUTHORITY=/home/${admin_username}/.Xauthority
+      ExecStartPre=/bin/bash -c 'until [ -S /tmp/.X11-unix/X0 ]; do sleep 1; done'
+      ExecStart=/usr/bin/sunshine
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/udev/rules.d/85-sunshine-input.rules
+    permissions: "0644"
+    content: |
+      KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess", GROUP="input", MODE="0660"
+
+  # Install-sunshine pulls the latest .deb for whichever Ubuntu release is
+  # running. Single source of truth: the tag redirect from GitHub releases/latest.
+  - path: /usr/local/sbin/install-sunshine.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      if command -v sunshine >/dev/null 2>&1; then exit 0; fi
+      UBU_VER=$(. /etc/os-release; echo "$VERSION_ID")
+      LATEST_TAG=$(curl -sI https://github.com/LizardByte/Sunshine/releases/latest | awk -F'/' '/^location:/ {print $NF}' | tr -d '\r\n')
+      if [ -z "$LATEST_TAG" ]; then
+        echo "Could not determine latest Sunshine tag" >&2
+        exit 1
+      fi
+      URL="https://github.com/LizardByte/Sunshine/releases/download/$${LATEST_TAG}/sunshine-ubuntu-$${UBU_VER}-amd64.deb"
+      echo "Downloading Sunshine $${LATEST_TAG} for Ubuntu $${UBU_VER}"
+      wget -O /tmp/sunshine.deb "$${URL}"
+      DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/sunshine.deb
+      rm -f /tmp/sunshine.deb
+
+runcmd:
+  # XFCE's screen locker breaks over remote desktop — remove it
+  - [apt-get, purge, -y, light-locker, light-locker-settings]
+  # GPU access for the admin user
+  - [usermod, -aG, "video,render,input", "${admin_username}"]
+  # Sunshine .deb (not in apt)
+  - /usr/local/sbin/install-sunshine.sh
+  # Graphical boot + services
+  - [systemctl, set-default, graphical.target]
+  - [systemctl, enable, lightdm]
+  - [systemctl, enable, xrdp]
+  - [systemctl, enable, sunshine]
+  # Reboot once to enter the graphical target cleanly
+  - [shutdown, -r, "+1", "cloud-init done; rebooting into graphical target"]

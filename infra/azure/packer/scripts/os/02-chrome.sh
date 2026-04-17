@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 04-chrome.sh -- install Google Chrome from .deb
+# 02-chrome.sh -- install Google Chrome from .deb
 # Snap Chromium breaks OpenClaw's CDP integration due to AppArmor confinement.
 set -euo pipefail
 

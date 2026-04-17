@@ -8,7 +8,12 @@
 #   4. Pending update scripts
 #   5. Service startup
 #
-# Requires: parted, mkfs.ext4, blkid, jq, x11vnc (all baked into the image)
+# Requires: parted, mkfs.ext4, blkid, jq, x11vnc, lspci (all baked into the image)
+#
+# Display layout established by the claw-desktop-gpu baseline:
+#   :0   = Xorg under LightDM, served to humans by xrdp (3389) and Sunshine (47984+).
+#   :99  = Xvfb under systemd, runs OpenClaw + its Chrome; observed via x11vnc on 5901
+#          (openclaw-observe.service, optional).
 
 set -euo pipefail
 
@@ -298,11 +303,54 @@ run_updates() {
     fi
 }
 
+configure_amdgpu_busid() {
+    # Azure assigns the Radeon Pro V710 to a fresh PCI BusID per VM. Xorg's
+    # OutputClass match (baked in 10-amdgpu.conf) is enough when Xorg can
+    # auto-probe, but some configurations require an explicit Device section.
+    # Write 00-amdgpu.conf with the current BusID, converted to Xorg's decimal
+    # "PCI:bus:dev:fn" form.
+    local hex_bdf
+    hex_bdf=$(lspci -d 1002:7461 -mm 2>/dev/null | awk '{print $1}' | head -n1)
+    if [[ -z "$hex_bdf" ]]; then
+        log "No AMD Radeon Pro V710 (1002:7461) detected via lspci -- skipping xorg BusID config"
+        return 0
+    fi
+
+    # hex_bdf looks like "c3:00.0" (bus:dev.fn) — convert to decimal Xorg form
+    local bus dev fn
+    bus=$(printf '%d' "0x${hex_bdf%%:*}")
+    local rest="${hex_bdf#*:}"
+    dev=$(printf '%d' "0x${rest%%.*}")
+    fn=$(printf '%d' "0x${rest#*.}")
+
+    mkdir -p /etc/X11/xorg.conf.d
+    cat > /etc/X11/xorg.conf.d/00-amdgpu.conf <<EOF
+Section "Device"
+    Identifier "Card0"
+    Driver "amdgpu"
+    BusID "PCI:${bus}:${dev}:${fn}"
+EndSection
+
+Section "Screen"
+    Identifier "Screen0"
+    Device "Card0"
+    Monitor "Monitor0"
+EndSection
+
+Section "Monitor"
+    Identifier "Monitor0"
+    HorizSync 1-200
+    VertRefresh 1-200
+EndSection
+EOF
+    log "Configured AMD GPU xorg Device at PCI:${bus}:${dev}:${fn} (BDF ${hex_bdf})"
+}
+
 start_services() {
     # Display stack -- lightdm should already be running from systemd
     systemctl restart lightdm 2>/dev/null || true
 
-    # Wait for X11 socket
+    # Wait for X11 :0 socket (served to humans by xrdp + Sunshine)
     local tries=0
     while [[ ! -S /tmp/.X11-unix/X0 ]] && (( tries < 60 )); do
         sleep 1
@@ -315,11 +363,19 @@ start_services() {
         log "WARNING: X11 display :0 not ready after 60s"
     fi
 
-    # VNC
-    systemctl restart x11vnc 2>/dev/null || true
+    # Human-facing remote desktop
+    systemctl restart xrdp 2>/dev/null || true
+    systemctl restart sunshine 2>/dev/null || true
 
-    # OpenClaw gateway
+    # OpenClaw agent stack on its own Xvfb display :99
+    systemctl restart openclaw-xvfb 2>/dev/null || true
+    systemctl restart openclaw-wm 2>/dev/null || true
     systemctl restart openclaw-gateway 2>/dev/null || true
+
+    # Optional: observation path for the agent display (x11vnc bound to :99, port 5901)
+    if [[ -f /etc/systemd/system/openclaw-observe.service ]]; then
+        systemctl restart openclaw-observe 2>/dev/null || true
+    fi
 
     # PhantomTouch relay (phone automation bridge)
     if [[ -f /etc/systemd/system/phantom-relay.service ]]; then
@@ -344,6 +400,7 @@ seed_new_disk
 setup_symlinks
 fix_permissions
 sync_vnc_password
+configure_amdgpu_busid
 setup_tailscale
 run_updates
 start_services

@@ -7,8 +7,9 @@ packer {
   }
 }
 
-# claw-os: builds on top of claw-desktop, adds OpenClaw + Chrome + Claude Code
-# + Tailscale + boot infrastructure. This is the image fleet VMs deploy from.
+# claw-os: builds on top of claw-desktop-gpu, adds OpenClaw + Chrome + Claude Code
+# + Tailscale + Xvfb-backed agent services + boot infrastructure.
+# This is the image fleet VMs deploy from.
 
 source "azure-arm" "claw-os" {
   subscription_id    = var.subscription_id
@@ -18,18 +19,18 @@ source "azure-arm" "claw-os" {
 
   os_type = "Linux"
 
-  # Start from the claw-desktop gallery image instead of stock Ubuntu
+  # Start from the claw-desktop-gpu baseline gallery image
   shared_image_gallery {
     subscription   = var.subscription_id
     resource_group = var.resource_group
     gallery_name   = var.gallery_name
-    image_name     = "claw-desktop"
+    image_name     = "claw-desktop-gpu"
     image_version  = var.base_image_version
   }
 
   shared_image_gallery_destination {
     gallery_name        = var.gallery_name
-    image_name          = "claw-base"
+    image_name          = "claw-os"
     image_version       = var.image_version
     resource_group      = var.resource_group
     replication_regions = [var.location]
@@ -43,14 +44,15 @@ source "azure-arm" "claw-os" {
 build {
   sources = ["source.azure-arm.claw-os"]
 
-  # Application-layer installs (desktop already present from claw-desktop)
+  # Application-layer installs (desktop already present from claw-desktop-gpu)
   provisioner "shell" {
     scripts = [
-      "../scripts/03-nodejs-openclaw.sh",
-      "../scripts/04-chrome.sh",
-      "../scripts/05-claude-code.sh",
-      "../scripts/06-tailscale.sh",
-      "../scripts/07-system-setup.sh",
+      "../scripts/os/01-nodejs-openclaw.sh",
+      "../scripts/os/02-chrome.sh",
+      "../scripts/os/03-claude-code.sh",
+      "../scripts/os/04-tailscale.sh",
+      "../scripts/os/05-system-setup.sh",
+      "../scripts/os/06-openclaw-services.sh",
     ]
     execute_command = "chmod +x {{ .Path }}; sudo {{ .Path }}"
   }

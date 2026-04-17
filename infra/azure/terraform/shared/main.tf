@@ -17,8 +17,7 @@ module "image_gallery" {
   location               = module.shared_infra.location
   resource_group_name    = module.shared_infra.resource_group_name
   gallery_name           = local.azure.gallery_name
-  image_definition_name  = local.azure.image_definition_name
-  image_identifier       = local.image_identifier
+  image_definitions      = local.image_definitions
   hyper_v_generation     = try(local.azure.hyper_v_generation, "V2")
   trusted_launch_enabled = try(local.azure.trusted_launch_enabled, true)
   tags                   = local.shared_tags

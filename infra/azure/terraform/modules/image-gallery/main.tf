@@ -7,7 +7,9 @@ resource "azurerm_shared_image_gallery" "this" {
 }
 
 resource "azurerm_shared_image" "this" {
-  name                = var.image_definition_name
+  for_each = var.image_definitions
+
+  name                = each.key
   gallery_name        = azurerm_shared_image_gallery.this.name
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -15,9 +17,9 @@ resource "azurerm_shared_image" "this" {
   hyper_v_generation  = var.hyper_v_generation
 
   identifier {
-    publisher = var.image_identifier.publisher
-    offer     = var.image_identifier.offer
-    sku       = var.image_identifier.sku
+    publisher = each.value.publisher
+    offer     = each.value.offer
+    sku       = each.value.sku
   }
 
   trusted_launch_enabled = var.trusted_launch_enabled

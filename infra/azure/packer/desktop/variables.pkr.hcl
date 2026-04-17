@@ -5,13 +5,13 @@ variable "subscription_id" {
 
 variable "resource_group" {
   type        = string
-  default     = "rg-linux-desktop"
+  default     = "rg-claw-westus"
   description = "Resource group containing the Compute Gallery."
 }
 
 variable "location" {
   type        = string
-  default     = "eastus"
+  default     = "westus"
   description = "Azure region for the build VM."
 }
 
@@ -28,6 +28,6 @@ variable "image_version" {
 
 variable "vm_size" {
   type        = string
-  default     = "Standard_D2s_v3"
-  description = "VM size for the build VM."
+  default     = "Standard_NV8ads_V710_v5"
+  description = "VM size for the build VM. The baseline targets the AMD Radeon Pro V710 SKU so the AMD driver compiles against the same kernel/PCI ID it will run against."
 }

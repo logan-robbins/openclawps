@@ -51,7 +51,7 @@ module "claw_vm" {
     data.azurerm_client_config.current.subscription_id,
     data.azurerm_resource_group.this.name,
     local.azure.gallery_name,
-    local.azure.image_definition_name,
+    local.azure.fleet_image_definition_name,
     each.value.image_version,
   )
   data_disk_size_gb        = each.value.data_disk_size_gb
