@@ -52,7 +52,7 @@ After=openclaw-xvfb.service openclaw-wm.service network-online.target
 Requires=openclaw-xvfb.service openclaw-wm.service
 Wants=network-online.target
 ConditionPathExists=/home/azureuser/.openclaw/openclaw.json
-ConditionPathExists=/home/azureuser/.env
+ConditionPathExists=/home/azureuser/.openclaw/.env
 
 [Service]
 Type=simple
@@ -63,7 +63,7 @@ Environment=HOME=/home/azureuser
 Environment=DISPLAY=:99
 Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
 Environment=OPENCLAW_NO_RESPAWN=1
-EnvironmentFile=/home/azureuser/.env
+EnvironmentFile=/home/azureuser/.openclaw/.env
 ExecStartPre=/bin/bash -c 'until [ -S /tmp/.X11-unix/X99 ]; do sleep 1; done'
 ExecStart=/usr/bin/openclaw gateway
 Restart=always
@@ -99,3 +99,11 @@ UNIT
 # (openclaw-observe is enabled separately if desired; not in 05-system-setup.sh by default)
 
 systemctl daemon-reload
+
+# Enable the new services so they start on boot. The gateway has
+# ConditionPathExists guards on /home/azureuser/.openclaw/openclaw.json
+# and /home/azureuser/.env so it stays inactive on a fresh image; the
+# data-disk seed in /opt/claw/boot.sh provides those at first boot.
+systemctl enable openclaw-xvfb.service
+systemctl enable openclaw-wm.service
+systemctl enable openclaw-gateway.service

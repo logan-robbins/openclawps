@@ -10,13 +10,20 @@ variable "gallery_name" {
   type = string
 }
 
-# Map of image-definition-name -> identifier (publisher/offer/sku).
+# Map of image-definition-name -> identifier + optional marketplace purchase_plan.
 # Each entry produces one azurerm_shared_image resource in the gallery.
+# purchase_plan must match the source marketplace image when the bake derives
+# from a marketplace VM (Azure rejects publish if they differ).
 variable "image_definitions" {
   type = map(object({
     publisher = string
     offer     = string
     sku       = string
+    purchase_plan = optional(object({
+      name      = string
+      publisher = string
+      product   = string
+    }))
   }))
 }
 

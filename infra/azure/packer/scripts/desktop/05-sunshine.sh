@@ -5,11 +5,19 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-# Sunshine .deb for Ubuntu 24.04 (latest stable)
-SUNSHINE_VERSION="2025.118.155747"
-SUNSHINE_URL="https://github.com/LizardByte/Sunshine/releases/download/v${SUNSHINE_VERSION}/sunshine-ubuntu-24.04-amd64.deb"
+# Resolve latest Sunshine release tag dynamically (avoids hardcoded 404s)
+# and grab the .deb for the running Ubuntu version.
+UBU_VER=$(. /etc/os-release; echo "$VERSION_ID")
+LATEST_TAG=$(curl -sI https://github.com/LizardByte/Sunshine/releases/latest \
+  | awk -F'/' '/^location:/ {print $NF}' | tr -d '\r\n')
+if [[ -z "$LATEST_TAG" ]]; then
+  echo "ERROR: could not resolve latest Sunshine release tag" >&2
+  exit 1
+fi
+SUNSHINE_URL="https://github.com/LizardByte/Sunshine/releases/download/${LATEST_TAG}/sunshine-ubuntu-${UBU_VER}-amd64.deb"
+echo "Installing Sunshine ${LATEST_TAG} for Ubuntu ${UBU_VER}"
 
-wget -q -O /tmp/sunshine.deb "$SUNSHINE_URL"
+wget -O /tmp/sunshine.deb "$SUNSHINE_URL"
 apt-get install -y /tmp/sunshine.deb
 rm -f /tmp/sunshine.deb
 

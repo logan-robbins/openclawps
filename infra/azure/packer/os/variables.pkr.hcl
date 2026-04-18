@@ -17,8 +17,8 @@ variable "location" {
 
 variable "gallery_name" {
   type        = string
-  default     = "clawGallery"
-  description = "Azure Compute Gallery name."
+  default     = "clawGalleryWest"
+  description = "Azure Compute Gallery name (subscription-unique; westus uses ...West to avoid eastus collision)."
 }
 
 variable "image_version" {

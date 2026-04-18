@@ -22,6 +22,15 @@ resource "azurerm_shared_image" "this" {
     sku       = each.value.sku
   }
 
+  dynamic "purchase_plan" {
+    for_each = each.value.purchase_plan != null ? [each.value.purchase_plan] : []
+    content {
+      name      = purchase_plan.value.name
+      publisher = purchase_plan.value.publisher
+      product   = purchase_plan.value.product
+    }
+  }
+
   trusted_launch_enabled = var.trusted_launch_enabled
   tags                   = var.tags
 }

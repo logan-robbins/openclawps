@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
-# 01-system-packages.sh -- base packages for the claw-desktop-gpu baseline image
-# (XFCE + LightDM + tools; AMD driver / xrdp / Sunshine handled in later scripts)
+# 01-system-packages.sh -- base desktop packages for the claw-os bake on the
+# AMD V710 marketplace image.
+#
+# Marketplace base already provides: kernel pin, amdgpu driver, ROCm/AMF userspace.
+# This script intentionally does NOT do `apt-get upgrade` (would pull a newer
+# kernel the vendor driver doesn't build against).
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get upgrade -y
-
-# Pin kernel 6.5 (per MS Learn AMD V710 guide; 6.8 has known amdgpu issues)
-apt-get install -y linux-image-6.5.0-1025-azure linux-headers-6.5.0-1025-azure linux-modules-6.5.0-1025-azure
-apt-get install -y linux-headers-azure
-sed -i 's|^GRUB_DEFAULT=.*|GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux 6.5.0-1025-azure"|' /etc/default/grub
-update-grub
 
 apt-get install -y \
   xfce4 \
@@ -26,6 +23,7 @@ apt-get install -y \
   xclip \
   x11-utils \
   xvfb \
+  xserver-xorg-video-dummy \
   tmux \
   curl \
   wget \
@@ -33,21 +31,17 @@ apt-get install -y \
   gnupg \
   jq \
   git \
-  build-essential \
-  python3-setuptools \
-  python3-wheel \
   net-tools \
   pciutils
 
-# Add azureuser to video/render groups (required for amdgpu)
-# (azureuser is created by cloud-init, but the groups must already exist)
+# render/video groups for GPU/uinput access (Sunshine input injection)
 groupadd -f render
 groupadd -f video
 
-# Purge light-locker (causes 10-min screen lock trap over remote desktop)
+# Purge light-locker (10-min lock trap over remote desktop)
 apt-get purge -y light-locker light-locker-settings 2>/dev/null || true
 
-# Disable host-side firewall (Azure NSG is the only enforcement boundary)
+# Azure NSG is the only enforcement boundary — disable host firewall
 systemctl stop ufw || true
 systemctl disable ufw || true
 ufw --force disable || true

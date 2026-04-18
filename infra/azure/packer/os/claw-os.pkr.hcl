@@ -7,9 +7,15 @@ packer {
   }
 }
 
-# claw-os: builds on top of claw-desktop-gpu, adds OpenClaw + Chrome + Claude Code
-# + Tailscale + Xvfb-backed agent services + boot infrastructure.
-# This is the image fleet VMs deploy from.
+# claw-os: single bake on top of AMD's pre-installed V710 marketplace image.
+#
+# The marketplace image already provides: kernel pin, amdgpu kernel driver,
+# ROCm/AMF userspace, Secure Boot signed modules. We add ONLY the desktop
+# layer (XFCE, LightDM, dummy Xorg, xrdp, Sunshine) and the agent layer
+# (Node, Chrome, Claude Code, Tailscale, Xvfb-backed agent services,
+# vm-runtime payload). Decision rationale: the standalone baseline/ Terraform
+# already covers the "deploy a generic GPU desktop" case directly from the
+# marketplace image, so a separate claw-desktop image was redundant.
 
 source "azure-arm" "claw-os" {
   subscription_id    = var.subscription_id
@@ -19,13 +25,16 @@ source "azure-arm" "claw-os" {
 
   os_type = "Linux"
 
-  # Start from the claw-desktop-gpu baseline gallery image
-  shared_image_gallery {
-    subscription   = var.subscription_id
-    resource_group = var.resource_group
-    gallery_name   = var.gallery_name
-    image_name     = "claw-desktop-gpu"
-    image_version  = var.base_image_version
+  # AMD V710 marketplace image (Ubuntu + amdgpu pre-installed).
+  image_publisher = "amdinc1746636494855"
+  image_offer     = "nvv5_v710_linux_rocm_image"
+  image_sku       = "planid125"
+  image_version   = "1.0.2"
+
+  plan_info {
+    plan_name      = "planid125"
+    plan_product   = "nvv5_v710_linux_rocm_image"
+    plan_publisher = "amdinc1746636494855"
   }
 
   shared_image_gallery_destination {
@@ -36,15 +45,28 @@ source "azure-arm" "claw-os" {
     replication_regions = [var.location]
   }
 
-  security_type       = "TrustedLaunch"
-  secure_boot_enabled = true
-  vtpm_enabled        = true
+  # AMD marketplace image does not support Trusted Launch (no signed kernel/
+  # initramfs chain) — leave security_type unset to use the default "Standard"
+  # security profile (Packer for Azure rejects an explicit "Standard").
 }
 
 build {
   sources = ["source.azure-arm.claw-os"]
 
-  # Application-layer installs (desktop already present from claw-desktop-gpu)
+  # Desktop layer: XFCE + LightDM + dummy Xorg + xrdp + Sunshine
+  # (no AMD driver script — marketplace base already has it)
+  provisioner "shell" {
+    scripts = [
+      "../scripts/desktop/01-system-packages.sh",
+      "../scripts/desktop/03-display-config.sh",
+      "../scripts/desktop/04-xrdp.sh",
+      "../scripts/desktop/05-sunshine.sh",
+    ]
+    execute_command = "chmod +x {{ .Path }}; sudo {{ .Path }}"
+  }
+
+  # Application layer: Node + OpenClaw + Chrome + Claude Code + Tailscale +
+  # system setup + Xvfb-backed agent services
   provisioner "shell" {
     scripts = [
       "../scripts/os/01-nodejs-openclaw.sh",
@@ -57,10 +79,10 @@ build {
     execute_command = "chmod +x {{ .Path }}; sudo {{ .Path }}"
   }
 
-  # Stage vm-runtime boot files onto the image
+  # Stage vm-runtime boot files onto the image.
   # Tarballs must be pre-built before running packer build:
   #   tar czf /tmp/packer-defaults.tar.gz -C vm-runtime/defaults .
-  #   tar czf /tmp/packer-updates.tar.gz -C vm-runtime/updates .
+  #   tar czf /tmp/packer-updates.tar.gz  -C vm-runtime/updates  .
   provisioner "file" {
     source      = "../../../../vm-runtime/lifecycle/boot.sh"
     destination = "/tmp/boot.sh"
@@ -86,7 +108,6 @@ build {
     destination = "/tmp/packer-updates.tar.gz"
   }
 
-  # Untar and move staged files into place
   provisioner "shell" {
     inline = [
       "sudo mkdir -p /opt/claw/defaults /opt/claw/updates",

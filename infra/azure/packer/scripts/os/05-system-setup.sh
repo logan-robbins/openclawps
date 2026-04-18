@@ -21,13 +21,10 @@ apt-get install -y gh
 # codex CLI
 npm install -g @openai/codex 2>/dev/null || true
 
-# Enable graphical target + services baked by claw-desktop-gpu
+# Enable graphical target + base display services
+# (Agent services Xvfb/WM/gateway are enabled by 06-openclaw-services.sh
+# where they are created — keeps install+enable together.)
 systemctl set-default graphical.target
 systemctl enable lightdm
 systemctl enable xrdp
 systemctl enable sunshine
-
-# Enable OpenClaw services (Xvfb + WM + gateway) — installed by 06-openclaw-services.sh
-systemctl enable openclaw-xvfb.service
-systemctl enable openclaw-wm.service
-systemctl enable openclaw-gateway.service
