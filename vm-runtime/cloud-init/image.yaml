@@ -1,12 +1,20 @@
 #cloud-config
-# Minimal bootstrap for image-based claw deploys (Phase 3).
-# No package installs -- everything is baked into the image.
-# Injects secrets and triggers /opt/claw/boot.sh.
-#
-# Placeholders are substituted by deploy.sh (envsubst) or Terraform (templatefile)
-# before az vm create. This file never contains actual secrets.
+# Self-contained install for fleet VMs on the AMD V710 marketplace base.
+# No Packer / no gallery — cloud-init clones the repo and runs install
+# scripts on first boot. Subsequent boots skip cloud-init entirely
+# (data disk persists secrets + agent state).
+
+# DO NOT set package_upgrade: true — would pull a kernel the AMD vendor
+# driver doesn't build against.
+package_update: true
+
+packages:
+  - git
 
 write_files:
+  # Per-claw secrets, written where the agent gateway expects them.
+  # boot.sh copies this onto the data disk on first boot, then bind-mounts
+  # /mnt/claw-data/openclaw → ~/.openclaw so subsequent boots see the same file.
   - path: /home/azureuser/.openclaw/.env
     permissions: "0600"
     content: |
@@ -23,6 +31,60 @@ write_files:
       TAILSCALE_AUTHKEY=${TAILSCALE_AUTHKEY}
       RELAY_TOKEN=${RELAY_TOKEN}
 
+  # First-boot install runner: clone repo, run desktop + os scripts, stage
+  # vm-runtime payload into /opt/claw/, then trigger boot.sh.
+  - path: /usr/local/sbin/first-boot-install.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      LOG=/var/log/first-boot-install.log
+      exec > >(tee -a "$LOG") 2>&1
+      echo "=== first-boot-install starting at $(date -u) ==="
+
+      WORK=/tmp/claw-install
+      rm -rf "$WORK"
+      git clone --depth 1 https://github.com/logan-robbins/openclaups.git "$WORK"
+
+      cd "$WORK"
+
+      # Desktop layer: XFCE, lightdm, dummy Xorg, xrdp, Sunshine
+      for s in vm-runtime/install/desktop/0?-*.sh; do
+          echo ">>> $(basename "$s")"
+          bash "$s"
+      done
+
+      # Application layer: Node, OpenClaw, Chrome, Claude Code, Tailscale,
+      # system-setup, agent services
+      for s in vm-runtime/install/os/0?-*.sh; do
+          echo ">>> $(basename "$s")"
+          bash "$s"
+      done
+
+      # Stage vm-runtime into /opt/claw/ (matches the prior baked layout)
+      mkdir -p /opt/claw/defaults /opt/claw/updates
+      cp vm-runtime/lifecycle/*.sh /opt/claw/
+      cp -a vm-runtime/defaults/. /opt/claw/defaults/
+      cp -a vm-runtime/updates/. /opt/claw/updates/
+      chmod +x /opt/claw/*.sh /opt/claw/updates/*.sh
+
+      # Trigger boot.sh: mount data disk, seed defaults onto fresh disk,
+      # bind-mount ~/.openclaw + ~/workspace from data disk, run pending
+      # update scripts (012 fixes the gateway env path), restart services.
+      /opt/claw/boot.sh
+
+      rm -rf "$WORK"
+      echo "=== first-boot-install complete at $(date -u) ==="
+
+ssh_pwauth: true
+
+chpasswd:
+  expire: false
+  users:
+    - name: azureuser
+      password: ${VM_PASSWORD}
+      type: text
+
 runcmd:
   - chown -R azureuser:azureuser /home/azureuser
-  - /opt/claw/boot.sh
+  - /usr/local/sbin/first-boot-install.sh

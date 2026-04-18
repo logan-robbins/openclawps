@@ -31,8 +31,19 @@ variable "admin_password" {
   sensitive = true
 }
 
-variable "source_image_id" {
-  type = string
+variable "source_image" {
+  description = "Marketplace image reference + purchase plan. VMs deploy directly (no Packer/gallery)."
+  type = object({
+    publisher = string
+    offer     = string
+    sku       = string
+    version   = string
+    plan = optional(object({
+      name      = string
+      publisher = string
+      product   = string
+    }))
+  })
 }
 
 variable "data_disk_size_gb" {

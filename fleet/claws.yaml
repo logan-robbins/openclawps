@@ -8,23 +8,19 @@ azure:
     - 10.0.0.0/16
   subnet_prefixes:
     - 10.0.0.0/24
-  # Gallery names are subscription-unique; the original clawGallery lives in eastus.
-  gallery_name: clawGalleryWest
-  # Single image definition: option (b) collapses the desktop layer into the
-  # claw-os bake on top of the AMD marketplace base. The standalone baseline/
-  # Terraform covers the "deploy a generic GPU desktop" case directly from the
-  # marketplace image without an intermediate baked baseline.
-  fleet_image_definition_name: claw-os
-  image_definitions:
-    claw-os:
-      publisher: claw
-      offer: claw-vm
-      sku: os
-      # Must match the AMD V710 marketplace base used by the Packer bake.
-      purchase_plan:
-        name: planid125
-        publisher: amdinc1746636494855
-        product: nvv5_v710_linux_rocm_image
+  # No Packer / Compute Gallery — fleet VMs deploy directly from the AMD
+  # V710 marketplace image; cloud-init installs the desktop + agent layers
+  # on first boot. First-boot install is ~8-12 min; redeploys are fast
+  # because the data disk (with secrets + agent state) survives.
+  source_image:
+    publisher: amdinc1746636494855
+    offer: nvv5_v710_linux_rocm_image
+    sku: planid125
+    version: 1.0.2
+    plan:
+      name: planid125
+      publisher: amdinc1746636494855
+      product: nvv5_v710_linux_rocm_image
   hyper_v_generation: V2
   # AMD V710 marketplace base image does not support Trusted Launch.
   trusted_launch_enabled: false
