@@ -110,7 +110,7 @@ if command -v amd-smi >/dev/null 2>&1; then
 else
     warn "amd-smi not installed (graphics-only install may omit it)"
 fi
-check "X11 BusID config /etc/X11/xorg.conf.d/00-amdgpu.conf exists" test -f /etc/X11/xorg.conf.d/00-amdgpu.conf
+check "Xorg dummy driver config /etc/X11/xorg.conf.d/99-dummy.conf exists" test -f /etc/X11/xorg.conf.d/99-dummy.conf
 
 # -- Systemd services -----------------------------------------------------------
 echo "Services (human display):"

@@ -303,49 +303,6 @@ run_updates() {
     fi
 }
 
-configure_amdgpu_busid() {
-    # Azure assigns the Radeon Pro V710 to a fresh PCI BusID per VM. Xorg's
-    # OutputClass match (baked in 10-amdgpu.conf) is enough when Xorg can
-    # auto-probe, but some configurations require an explicit Device section.
-    # Write 00-amdgpu.conf with the current BusID, converted to Xorg's decimal
-    # "PCI:bus:dev:fn" form.
-    local hex_bdf
-    hex_bdf=$(lspci -d 1002:7461 -mm 2>/dev/null | awk '{print $1}' | head -n1)
-    if [[ -z "$hex_bdf" ]]; then
-        log "No AMD Radeon Pro V710 (1002:7461) detected via lspci -- skipping xorg BusID config"
-        return 0
-    fi
-
-    # hex_bdf looks like "c3:00.0" (bus:dev.fn) — convert to decimal Xorg form
-    local bus dev fn
-    bus=$(printf '%d' "0x${hex_bdf%%:*}")
-    local rest="${hex_bdf#*:}"
-    dev=$(printf '%d' "0x${rest%%.*}")
-    fn=$(printf '%d' "0x${rest#*.}")
-
-    mkdir -p /etc/X11/xorg.conf.d
-    cat > /etc/X11/xorg.conf.d/00-amdgpu.conf <<EOF
-Section "Device"
-    Identifier "Card0"
-    Driver "amdgpu"
-    BusID "PCI:${bus}:${dev}:${fn}"
-EndSection
-
-Section "Screen"
-    Identifier "Screen0"
-    Device "Card0"
-    Monitor "Monitor0"
-EndSection
-
-Section "Monitor"
-    Identifier "Monitor0"
-    HorizSync 1-200
-    VertRefresh 1-200
-EndSection
-EOF
-    log "Configured AMD GPU xorg Device at PCI:${bus}:${dev}:${fn} (BDF ${hex_bdf})"
-}
-
 start_services() {
     # Display stack -- lightdm should already be running from systemd
     systemctl restart lightdm 2>/dev/null || true
@@ -400,7 +357,6 @@ seed_new_disk
 setup_symlinks
 fix_permissions
 sync_vnc_password
-configure_amdgpu_busid
 setup_tailscale
 run_updates
 start_services

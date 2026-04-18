@@ -48,14 +48,11 @@ write_files:
 
       cd "$WORK"
 
-      # Desktop layer: XFCE, lightdm, dummy Xorg, xrdp, Sunshine
-      for s in vm-runtime/install/desktop/0?-*.sh; do
-          echo ">>> $(basename "$s")"
-          bash "$s"
-      done
-
-      # Application layer: Node, OpenClaw, Chrome, Claude Code, Tailscale,
-      # system-setup, agent services
+      # APPLICATION LAYER ONLY — the desktop layer (XFCE, lightdm, dummy
+      # Xorg, xrdp, Sunshine) is baked into claw-desktop-gpu and never
+      # re-installed at deploy time. We only install the things that
+      # change between deploys: Node, OpenClaw, Chrome, Claude Code,
+      # Tailscale, system-setup, agent services.
       for s in vm-runtime/install/os/0?-*.sh; do
           echo ">>> $(basename "$s")"
           bash "$s"
