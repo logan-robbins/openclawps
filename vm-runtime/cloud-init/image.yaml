@@ -78,8 +78,13 @@ ssh_pwauth: true
 chpasswd:
   expire: false
   users:
+    # Single-quoted: passwords starting with YAML-significant characters
+    # (e.g. `*` triggers an alias lookup, `&` an anchor) would otherwise
+    # break parsing and silently invalidate the entire cloud-config.
+    # The Terraform password generator uses `!#%*+-_=` for special chars —
+    # none of those require single-quote escaping.
     - name: azureuser
-      password: ${VM_PASSWORD}
+      password: '${VM_PASSWORD}'
       type: text
 
 runcmd:
