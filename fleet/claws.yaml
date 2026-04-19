@@ -35,7 +35,7 @@ azure:
 
 defaults:
   admin_username: azureuser
-  vm_size: Standard_NV8ads_V710_v5
+  vm_size: Standard_NV12ads_V710_v5
   data_disk_size_gb: 32
   data_disk_sku: Standard_LRS
   image_version: "1.0.0"
