@@ -1,56 +1,31 @@
 #!/usr/bin/env bash
-# 06-openclaw-services.sh -- systemd units that run OpenClaw on its own Xvfb display
-# (independent of the human RDP session on :0 — survives connect/disconnect/restart)
+# 06-openclaw-services.sh -- systemd unit for the OpenClaw agent running on
+# the XFCE :0 session shared with the human operator.
+#
+# Why :0 (not a dedicated Xvfb):
+#   The earlier design parked the agent on :99 so it would survive xrdp
+#   session churn. Sunshine/Moonlight don't spawn new sessions (they
+#   capture the existing display), so there's no churn to defend against.
+#   Running everything on :0 means one Chrome process, one user-data-dir
+#   (~/.config/google-chrome), and one browser session — so when the human
+#   Moonlights in and logs into GitHub/Google/etc., the agent inherits
+#   that auth state (and vice versa). That's what the operator actually
+#   wants: "same functionality as running on my local Mac."
+#
+# Trade-off: operator and agent share the mouse/keyboard on :0. Active
+# input races are expected and fine for the observe-and-assist workflow.
+#
+# :0 is owned by LightDM-autologin (xfce4-session running as azureuser).
+# The service waits for xfce4-session, then launches the gateway with
+# DISPLAY=:0 and XAUTHORITY=/home/azureuser/.Xauthority (same pattern as
+# the already-working sunshine.service).
 set -euo pipefail
 
-# ---- Xvfb on :99 (the agent's dedicated headless display) ----
-cat > /etc/systemd/system/openclaw-xvfb.service <<'UNIT'
-[Unit]
-Description=Xvfb virtual X server on :99 for OpenClaw agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=azureuser
-Group=azureuser
-ExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -ac +extension RANDR +extension RENDER -nolisten tcp
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-# ---- xfwm4 inside :99 so Chrome has a window manager (move/resize/focus) ----
-cat > /etc/systemd/system/openclaw-wm.service <<'UNIT'
-[Unit]
-Description=xfwm4 window manager inside the OpenClaw Xvfb session (:99)
-After=openclaw-xvfb.service
-Requires=openclaw-xvfb.service
-
-[Service]
-Type=simple
-User=azureuser
-Group=azureuser
-Environment=HOME=/home/azureuser
-Environment=DISPLAY=:99
-ExecStartPre=/bin/bash -c 'until [ -S /tmp/.X11-unix/X99 ]; do sleep 1; done'
-ExecStart=/usr/bin/xfwm4 --display=:99 --replace
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-# ---- OpenClaw gateway bound to :99, decoupled from human RDP/Sunshine sessions ----
 cat > /etc/systemd/system/openclaw-gateway.service <<'UNIT'
 [Unit]
-Description=OpenClaw Gateway (auto-starts at boot, runs on dedicated Xvfb :99)
-After=openclaw-xvfb.service openclaw-wm.service network-online.target
-Requires=openclaw-xvfb.service openclaw-wm.service
-Wants=network-online.target
+Description=OpenClaw Gateway (runs on the shared XFCE :0 session)
+After=graphical.target network-online.target
+Wants=network-online.target graphical.target
 ConditionPathExists=/home/azureuser/.openclaw/openclaw.json
 ConditionPathExists=/home/azureuser/.openclaw/.env
 
@@ -60,11 +35,16 @@ User=azureuser
 Group=azureuser
 WorkingDirectory=/home/azureuser
 Environment=HOME=/home/azureuser
-Environment=DISPLAY=:99
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/azureuser/.Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
 Environment=OPENCLAW_NO_RESPAWN=1
 EnvironmentFile=/home/azureuser/.openclaw/.env
-ExecStartPre=/bin/bash -c 'until [ -S /tmp/.X11-unix/X99 ]; do sleep 1; done'
+# Wait for the XFCE session on :0 to be fully up before launching the
+# gateway. Same pattern sunshine.service uses. 120s is generous — typical
+# cold boot has xfce4-session live in ~15-20s.
+ExecStartPre=/bin/bash -c 'for _ in $(seq 1 120); do pgrep -u azureuser xfce4-session >/dev/null && exit 0; sleep 1; done; echo "timed out waiting for xfce4-session" >&2; exit 1'
 ExecStart=/usr/bin/openclaw gateway
 Restart=always
 RestartSec=10
@@ -72,38 +52,12 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 UNIT
-
-# ---- Optional: x11vnc bound only to :99 on port 5901, for observing the agent ----
-# (separate from xrdp on 3389 which serves the human :0)
-apt-get install -y x11vnc
-cat > /etc/systemd/system/openclaw-observe.service <<'UNIT'
-[Unit]
-Description=x11vnc bound to OpenClaw Xvfb (:99) on port 5901 for agent observation
-After=openclaw-xvfb.service
-Requires=openclaw-xvfb.service
-
-[Service]
-Type=simple
-User=azureuser
-Group=azureuser
-ExecStartPre=/bin/bash -c 'until [ -S /tmp/.X11-unix/X99 ]; do sleep 1; done'
-ExecStart=/usr/bin/x11vnc -display :99 -rfbport 5901 -rfbauth /etc/x11vnc.pass -forever -shared -noxdamage
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-# (openclaw-observe is enabled separately if desired; not in 05-system-setup.sh by default)
 
 systemctl daemon-reload
 
-# Enable the new services so they start on boot. The gateway has
-# ConditionPathExists guards on /home/azureuser/.openclaw/openclaw.json
-# and /home/azureuser/.env so it stays inactive on a fresh image; the
-# data-disk seed in /opt/claw/boot.sh provides those at first boot.
-systemctl enable openclaw-xvfb.service
-systemctl enable openclaw-wm.service
+# Enable the service so it starts on boot. ConditionPathExists on the data
+# disk's openclaw.json / .env keeps it inactive on fresh images until
+# boot.sh seeds the data disk.
 systemctl enable openclaw-gateway.service
