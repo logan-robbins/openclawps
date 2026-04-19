@@ -14,3 +14,6 @@ secrets.auto.tfvars
 *.swp
 *.edited.md
 infra/azure/terraform/fleet/backend_override.tf
+
+# Google OAuth client secret files (kept in repo root, never committed)
+client_secret_*.json

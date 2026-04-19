@@ -34,9 +34,14 @@ apt-get install -y \
   net-tools \
   pciutils
 
-# render/video groups for GPU/uinput access (Sunshine input injection)
+# render/video groups for GPU/uinput access (Sunshine input injection
+# + ROCm /dev/kfd on the V710 — without render, processes see the amdgpu
+# node but get "Unable to open /dev/kfd read-write: Permission denied").
 groupadd -f render
 groupadd -f video
+if id azureuser >/dev/null 2>&1; then
+  usermod -aG render,video azureuser
+fi
 
 # Purge light-locker (10-min lock trap over remote desktop)
 apt-get purge -y light-locker light-locker-settings 2>/dev/null || true
