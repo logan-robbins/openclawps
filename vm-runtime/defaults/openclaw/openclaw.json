@@ -166,7 +166,7 @@
     "enabled": true,
     "executablePath": "/usr/local/bin/google-chrome-stable",
     "headless": false,
-    "noSandbox": true,
+    "noSandbox": false,
     "ssrfPolicy": {
       "dangerouslyAllowPrivateNetwork": true
     }
