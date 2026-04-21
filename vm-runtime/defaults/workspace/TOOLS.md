@@ -12,6 +12,22 @@ This file documents what is specific to this claw VM. Skills define how tools wo
 
 - `~/workspace` → `/mnt/claw-data/workspace` (this directory, persists on data disk)
 - `~/.openclaw` → `/mnt/claw-data/openclaw` (config, secrets, skills)
+- `~/workspace/tmp` → `/tmp/` (symlink so `/tmp/*` is reachable from an allowed media root)
+
+## Chat-previewable files (allowed media roots)
+
+The control UI will only preview a local file whose absolute path starts with one of these six roots (hardcoded in `buildMediaLocalRoots`, `local-roots-BrPriMlc.js`). Writing to any other path yields `Unavailable — Outside allowed folders` in chat.
+
+1. `/tmp/openclaw/` — the "preferred OpenClaw tmp dir" (resolved by `resolvePreferredOpenClawTmpDir`, already exists `0700`). Use for ephemeral captures you want to show the user.
+2. `/home/azureuser/.openclaw/media/` — long-lived media store, served by `assistant-media`.
+3. `/home/azureuser/.openclaw/canvas/`
+4. `/home/azureuser/.openclaw/sandboxes/`
+5. `/mnt/claw-data/workspace/` (= `~/workspace/`) — this directory. Use for durable, version-controllable artifacts.
+6. `<configDir>/media/` — rarely relevant on this VM.
+
+There is no config knob to extend this list (GitHub issue openclaw#22237, closed "not planned"). If a tool writes to plain `/tmp/<name>.png`, move it into `/tmp/openclaw/` or reference it via `~/workspace/tmp/<name>.png` (the symlink exposes `/tmp/` under an allowed root — note the server-side `realpath` may still reject the final fetch, in which case copy rather than symlink).
+
+**When an attachment renders `unavailable`:** do not describe the image. State that the preview failed, move or copy the file into `/tmp/openclaw/` or `~/workspace/`, and reattach.
 
 ## Models
 
